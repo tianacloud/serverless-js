@@ -1,0 +1,51 @@
+# `@tiana/serverless`
+
+`@tiana/serverless` is the JavaScript/TypeScript Custom Fetch adapter for
+Tiana Fetch-over-HTTPS v1. It converts one standard same-origin `fetch()`
+request into a TFQ1 request to the Tiana Gateway and exposes the TFS1 inner
+response as a standard `Response`.
+
+The initial package is private and unreleased. Its wire authority is the
+immutable Contracts release `v0.17.2-rc.1` at commit
+`d252fd7bf689657e50b6caf36298f8c57860df6b` (annotated tag object
+`fb4fdf07f6e5b86eb00562f07dccf7bd120cd0f2`).
+
+## Intended use
+
+```ts
+import { createTianaFetch } from "@tiana/serverless";
+
+const databaseOrigin =
+  "https://ep-01j5c9m7q2v8x4k6n3r0t1w2yz.db.service.internal.tiana.com";
+
+const tianaFetch = createTianaFetch({
+  origin: databaseOrigin,
+  tianaToken: process.env.TIANA_TOKEN!,
+});
+
+// Pass `tianaFetch` as the custom Fetch implementation of the database
+// client. The database client's Authorization header remains an inner header;
+// the Tiana Token is used only for the outer Gateway request.
+```
+
+The adapter accepts `RequestInfo | URL` plus an optional `RequestInit`, uses
+the platform `Request` constructor for normalization, and rejects any request
+whose normalized origin differs from the configured origin. It performs one
+outer request and never retries automatically.
+
+The configured origin is restricted to the frozen v1 public authority:
+`ep-[0-7][0-9a-hjkmnp-tv-z]{25}.db.service.internal.tiana.com` on logical
+port 443. Arbitrary hosts, IP literals, localhost, alternate ports, paths,
+queries, fragments, and embedded credentials are rejected before transport.
+
+## Development
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm check
+```
+
+The runtime has no production dependencies and uses only standard Fetch,
+Web Streams, URL, Encoding, and Web Crypto APIs. Node and Bun are exercised
+locally. Deno must be reported as unverified when it is not installed; a
+different runtime must never be inferred from TypeScript compilation alone.

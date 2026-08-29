@@ -1,0 +1,93 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://tiana.internal/contracts/fetch-v1.schema.json",
+  "title":"Tiana Fetch-over-HTTPS v1",
+  "description":"The binary request/response frame uses TFQ1/TFS1, a fixed 10-byte prefix, canonical JSON metadata, and an unencoded body stream. The requestBody and responseBody definitions describe that binary HTTP body; metadata definitions describe the canonical JSON carried inside it.",
+  "$defs": {
+    "requestMetadata": {
+      "type":"object","additionalProperties":false,
+      "required":["metadata_version","request_id","method","path_query","headers","body_length"],
+      "properties":{
+        "metadata_version":{"const":1},
+        "request_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "method":{"enum":["GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS"]},
+        "path_query":{"type":"string","minLength":1,"maxLength":16384,"pattern":"^/[\\x21-\\x7e]*$","description":"Go semantic validation additionally rejects //, raw #, backslash, unsafe percent escapes, and encoded controls."},
+        "headers":{"type":"array","maxItems":128,"items":{"$ref":"#/$defs/header"}},
+        "body_length":{"oneOf":[{"type":"null"},{"type":"integer","minimum":0,"maximum":16777216}]}
+      },
+      "allOf":[{"if":{"properties":{"method":{"enum":["GET","HEAD"]}},"required":["method"]},"then":{"properties":{"body_length":{"const":0}}}}]
+    },
+    "responseMetadata": {
+      "type":"object","additionalProperties":false,
+      "required":["metadata_version","request_id","status","status_text","headers","body_length"],
+      "properties":{
+        "metadata_version":{"const":1},
+        "request_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+        "status":{"type":"integer","minimum":200,"maximum":599},
+        "status_text":{"type":"string","maxLength":128,"pattern":"^[\\x20-\\x7e]*$"},
+        "headers":{"type":"array","maxItems":128,"items":{"$ref":"#/$defs/header"}},
+        "body_length":{"oneOf":[{"type":"null"},{"type":"integer","minimum":0,"maximum":16777216}]}
+      },
+      "allOf":[{"if":{"properties":{"status":{"enum":[204,205,304]}},"required":["status"]},"then":{"properties":{"body_length":{"const":0}}}}]
+    },
+    "header": {
+      "type":"object","additionalProperties":false,
+      "required":["name","value"],
+      "properties":{
+        "name":{"type":"string","minLength":1,"maxLength":256,"pattern":"^[a-z0-9!#$%&'*+\\-.^_`|~]+$","allOf":[{"not":{"enum":["host","connection","keep-alive","te","trailer","transfer-encoding","upgrade","content-length","forwarded","via","x-forwarded-for","x-forwarded-host","x-forwarded-port","x-forwarded-proto","expect","accept-encoding"]}},{"not":{"pattern":"^proxy-"}},{"not":{"pattern":"^tiana-"}},{"not":{"pattern":"^x-forwarded-"}}]},
+        "value":{"type":"string","maxLength":16384,"pattern":"^(?:|[\\x21-\\x7e](?:[\\t\\x20-\\x7e]*[\\x21-\\x7e])?)$"}
+      }
+    },
+    "error": {
+      "type":"object","additionalProperties":false,
+      "required":["code","message","retryable","request_not_executed"],
+      "properties":{
+        "code":{"enum":["FETCH_INVALID_ARGUMENT","FETCH_AUTH_REQUIRED","FETCH_ACCESS_DENIED","FETCH_ENDPOINT_NOT_FOUND","FETCH_METHOD_NOT_ALLOWED","FETCH_REQUEST_TIMEOUT","FETCH_PAYLOAD_TOO_LARGE","FETCH_UNSUPPORTED_MEDIA_TYPE","FETCH_RATE_LIMITED","FETCH_INTERNAL","FETCH_BAD_GATEWAY","FETCH_UNAVAILABLE","FETCH_TIMEOUT"]},
+        "message":{"type":"string","minLength":1,"maxLength":128},
+        "retryable":{"type":"boolean"},
+        "request_not_executed":{"const":true},
+        "retry_after_ms":{"type":"integer","minimum":1,"maximum":60000}
+      },
+      "oneOf":[
+        {"properties":{"code":{"const":"FETCH_INVALID_ARGUMENT"},"message":{"const":"invalid fetch request"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_AUTH_REQUIRED"},"message":{"const":"authentication required"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_ACCESS_DENIED"},"message":{"const":"access denied"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_ENDPOINT_NOT_FOUND"},"message":{"const":"endpoint not found"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_METHOD_NOT_ALLOWED"},"message":{"const":"method not allowed"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_REQUEST_TIMEOUT"},"message":{"const":"fetch request timeout"},"retryable":{"const":true}}},
+        {"properties":{"code":{"const":"FETCH_PAYLOAD_TOO_LARGE"},"message":{"const":"fetch payload too large"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_UNSUPPORTED_MEDIA_TYPE"},"message":{"const":"unsupported fetch media type"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_RATE_LIMITED"},"message":{"const":"fetch rate limit exceeded"},"retryable":{"const":true}},"required":["retry_after_ms"]},
+        {"properties":{"code":{"const":"FETCH_INTERNAL"},"message":{"const":"fetch gateway error"},"retryable":{"const":false}},"not":{"required":["retry_after_ms"]}},
+        {"properties":{"code":{"const":"FETCH_BAD_GATEWAY"},"message":{"const":"fetch backend failure"},"retryable":{"const":true}}},
+        {"properties":{"code":{"const":"FETCH_UNAVAILABLE"},"message":{"const":"fetch temporarily unavailable"},"retryable":{"const":true}}},
+        {"properties":{"code":{"const":"FETCH_TIMEOUT"},"message":{"const":"fetch gateway timeout"},"retryable":{"const":true}}}
+      ]
+    },
+    "errorResponse": {
+      "type":"object","additionalProperties":false,
+      "required":["error"],"properties":{"error":{"$ref":"#/$defs/error"}}
+    },
+    "errorResponseInvalidArgument": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_INVALID_ARGUMENT"}}}}}]},
+    "errorResponseAuthRequired": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_AUTH_REQUIRED"}}}}}]},
+    "errorResponseAccessDenied": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_ACCESS_DENIED"}}}}}]},
+    "errorResponseEndpointNotFound": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_ENDPOINT_NOT_FOUND"}}}}}]},
+    "errorResponseMethodNotAllowed": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_METHOD_NOT_ALLOWED"}}}}}]},
+    "errorResponseRequestTimeout": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_REQUEST_TIMEOUT"}}}}}]},
+    "errorResponsePayloadTooLarge": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_PAYLOAD_TOO_LARGE"}}}}}]},
+    "errorResponseUnsupportedMediaType": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_UNSUPPORTED_MEDIA_TYPE"}}}}}]},
+    "errorResponseRateLimited": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_RATE_LIMITED"}}}}}]},
+    "errorResponseInternal": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_INTERNAL"}}}}}]},
+    "errorResponseBadGateway": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_BAD_GATEWAY"}}}}}]},
+    "errorResponseUnavailable": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_UNAVAILABLE"}}}}}]},
+    "errorResponseTimeout": {"allOf":[{"$ref":"#/$defs/errorResponse"},{"properties":{"error":{"properties":{"code":{"const":"FETCH_TIMEOUT"}}}}}]},
+    "requestBody": {
+      "type":"string","contentMediaType":"application/vnd.tiana.fetch.v1",
+      "description":"Binary TFQ1 frame: magic TFQ1, flags 0, unsigned big-endian metadata length, canonical request metadata, then raw body bytes. Metadata body_length is JSON null for unknown length or an integer from 0 through 16777216. See requestMetadata for the embedded object contract."
+    },
+    "responseBody": {
+      "type":"string","contentMediaType":"application/vnd.tiana.fetch.v1",
+      "description":"Binary TFS1 frame: magic TFS1, flags 0, unsigned big-endian metadata length, canonical response metadata, then raw body bytes. See responseMetadata for the embedded object contract."
+    }
+  }
+}

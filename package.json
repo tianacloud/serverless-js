@@ -1,0 +1,42 @@
+{
+  "name": "@tiana/serverless",
+  "version": "0.1.0-dev.0",
+  "description": "Tiana Fetch-over-HTTPS transport for serverless and edge JavaScript runtimes",
+  "type": "module",
+  "private": true,
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://git.service.internal.tiana.com/tiana/serverless-js.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:types": "pnpm run build && tsc -p tests/types/tsconfig.json",
+    "test": "pnpm run test:node",
+    "test:node": "pnpm run build && node --test tests/*.test.mjs",
+    "test:bun": "pnpm run build && bun tests/runtime-smoke.mjs",
+    "prepack": "pnpm run build",
+    "pack:check": "pnpm pack --dry-run",
+    "check": "pnpm run typecheck && pnpm run test:types && pnpm run test:node && pnpm run test:bun && pnpm run pack:check"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
