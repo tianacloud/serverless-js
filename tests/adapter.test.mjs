@@ -243,6 +243,14 @@ test("the outer Tiana Token cannot enter TFQ1 metadata", async () => {
       input: `${origin}/v1/query?credential=${tianaToken}`,
       init: { method: "POST" },
     },
+    {
+      input: `${origin}/v1/%74${tianaToken.slice(1)}`,
+      init: { method: "POST" },
+    },
+    {
+      input: `${origin}/v1/query?credential=%74${tianaToken.slice(1)}`,
+      init: { method: "POST" },
+    },
   ];
 
   for (const fixture of cases) {
@@ -276,6 +284,14 @@ test("preflight failures cancel pending request bodies without leaking the Token
     },
     {
       input: `${origin}/v1/query?credential=${tianaToken}`,
+      headers: {},
+    },
+    {
+      input: `${origin}/v1/%74${tianaToken.slice(1)}`,
+      headers: {},
+    },
+    {
+      input: `${origin}/v1/query?credential=%74${tianaToken.slice(1)}`,
       headers: {},
     },
     {

@@ -113,6 +113,13 @@ function normalizedHeaders(request: Request): FetchHeader[] {
   }));
 }
 
+function decodePercentEscapedBytes(value: string): string {
+  return value.replace(
+    /%([0-9a-f]{2})/gi,
+    (_escape, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+}
+
 function requestMetadata(
   request: Request,
   tianaToken: string,
@@ -127,6 +134,7 @@ function requestMetadata(
   const normalizedToken = tianaToken.toLowerCase();
   if (
     pathQuery.includes(tianaToken) ||
+    decodePercentEscapedBytes(pathQuery).includes(tianaToken) ||
     headers.some(
       ({ name, value }) =>
         name.includes(normalizedToken) || value.includes(tianaToken),
