@@ -124,9 +124,13 @@ function requestMetadata(
   const method = request.method as FetchMethod;
   const pathQuery = `${url.pathname}${url.search}`;
   const headers = normalizedHeaders(request);
+  const normalizedToken = tianaToken.toLowerCase();
   if (
     pathQuery.includes(tianaToken) ||
-    headers.some(({ value }) => value.includes(tianaToken))
+    headers.some(
+      ({ name, value }) =>
+        name.includes(normalizedToken) || value.includes(tianaToken),
+    )
   ) {
     throw protocolError(
       "The outer Tiana Token must not appear in inner Fetch metadata",
