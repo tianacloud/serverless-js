@@ -113,18 +113,31 @@ function normalizedHeaders(request: Request): FetchHeader[] {
   }));
 }
 
-function requestMetadata(request: Request): FetchRequestMetadata {
+function requestMetadata(
+  request: Request,
+  tianaToken: string,
+): FetchRequestMetadata {
   const url = new URL(request.url);
   if (!allowedMethods.has(request.method as FetchMethod)) {
     throw new TypeError("Tiana Fetch does not support this request method");
   }
   const method = request.method as FetchMethod;
+  const pathQuery = `${url.pathname}${url.search}`;
+  const headers = normalizedHeaders(request);
+  if (
+    pathQuery.includes(tianaToken) ||
+    headers.some(({ value }) => value.includes(tianaToken))
+  ) {
+    throw protocolError(
+      "The outer Tiana Token must not appear in inner Fetch metadata",
+    );
+  }
   return {
     metadata_version: 1,
     request_id: createRequestId(),
     method,
-    path_query: `${url.pathname}${url.search}`,
-    headers: normalizedHeaders(request),
+    path_query: pathQuery,
+    headers,
     body_length:
       method === "GET" || method === "HEAD" || request.body === null ? 0 : null,
   };
@@ -294,7 +307,7 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
     if (request.signal.aborted) {
       throw abortReason(request.signal);
     }
-    const metadata = requestMetadata(request);
+    const metadata = requestMetadata(request, tianaToken);
     const frame = createRequestFrameStream(metadata, request.body, request.signal);
     const headers = new Headers();
     headers.set("authorization", `Bearer ${tianaToken}`);

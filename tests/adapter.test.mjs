@@ -207,6 +207,51 @@ test("exact-origin and controlled-header violations fail before transport", asyn
   assert.equal(calls, 0);
 });
 
+test("the outer Tiana Token cannot enter TFQ1 metadata", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw new Error("transport must not run");
+    },
+  });
+  const cases = [
+    {
+      input: `${origin}/v1/query`,
+      init: {
+        method: "POST",
+        headers: { authorization: `Bearer ${tianaToken}` },
+      },
+    },
+    {
+      input: `${origin}/v1/query`,
+      init: {
+        method: "POST",
+        headers: { "x-debug-value": `prefix ${tianaToken} suffix` },
+      },
+    },
+    {
+      input: `${origin}/v1/query?credential=${tianaToken}`,
+      init: { method: "POST" },
+    },
+  ];
+
+  for (const fixture of cases) {
+    await assert.rejects(
+      adapter(fixture.input, fixture.init),
+      (error) => {
+        assert.ok(error instanceof TianaFetchProtocolError);
+        assert.match(error.message, /must not appear in inner Fetch metadata/);
+        assert.equal(error.message.includes(tianaToken), false);
+        return true;
+      },
+    );
+  }
+  assert.equal(calls, 0);
+});
+
 test("transport rejection cancels an unconsumed inner request body", async () => {
   let cancelled = false;
   const body = new ReadableStream({
