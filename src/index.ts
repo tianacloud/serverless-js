@@ -297,18 +297,25 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
-    const url = new URL(request.url);
-    if (url.origin !== origin) {
-      throw new TypeError("Tiana Fetch request origin does not match the configured origin");
+    let metadata: FetchRequestMetadata;
+    let frame: ReadableStream<Uint8Array>;
+    try {
+      const url = new URL(request.url);
+      if (url.origin !== origin) {
+        throw new TypeError("Tiana Fetch request origin does not match the configured origin");
+      }
+      if (url.hash !== "") {
+        throw new TypeError("Tiana Fetch request URL must not contain a fragment");
+      }
+      if (request.signal.aborted) {
+        throw abortReason(request.signal);
+      }
+      metadata = requestMetadata(request, tianaToken);
+      frame = createRequestFrameStream(metadata, request.body, request.signal);
+    } catch (error) {
+      await request.body?.cancel(error).catch(() => undefined);
+      throw error;
     }
-    if (url.hash !== "") {
-      throw new TypeError("Tiana Fetch request URL must not contain a fragment");
-    }
-    if (request.signal.aborted) {
-      throw abortReason(request.signal);
-    }
-    const metadata = requestMetadata(request, tianaToken);
-    const frame = createRequestFrameStream(metadata, request.body, request.signal);
     const headers = new Headers();
     headers.set("authorization", `Bearer ${tianaToken}`);
     headers.set("cache-control", "no-store");

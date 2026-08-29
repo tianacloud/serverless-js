@@ -252,6 +252,57 @@ test("the outer Tiana Token cannot enter TFQ1 metadata", async () => {
   assert.equal(calls, 0);
 });
 
+test("preflight failures cancel pending request bodies without leaking the Token", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw new Error("transport must not run");
+    },
+  });
+  const cases = [
+    {
+      input: `${origin}/v1/query`,
+      headers: { authorization: `Bearer ${tianaToken}` },
+    },
+    {
+      input: `${origin}/v1/query?credential=${tianaToken}`,
+      headers: {},
+    },
+    {
+      input: `${origin}/v1/query`,
+      headers: { "accept-encoding": "gzip" },
+    },
+  ];
+
+  for (const fixture of cases) {
+    let cancelled = false;
+    const body = new ReadableStream({
+      pull() {},
+      cancel(reason) {
+        cancelled = true;
+        assert.equal(String(reason).includes(tianaToken), false);
+      },
+    });
+    await assert.rejects(
+      adapter(fixture.input, {
+        method: "POST",
+        headers: fixture.headers,
+        body,
+        duplex: "half",
+      }),
+      (error) => {
+        assert.equal(String(error).includes(tianaToken), false);
+        return true;
+      },
+    );
+    assert.equal(cancelled, true);
+  }
+  assert.equal(calls, 0);
+});
+
 test("transport rejection cancels an unconsumed inner request body", async () => {
   let cancelled = false;
   const body = new ReadableStream({
