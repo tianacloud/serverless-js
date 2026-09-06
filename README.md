@@ -5,8 +5,8 @@ Tiana Fetch-over-HTTPS v1. It converts one standard same-origin `fetch()`
 request into a TFQ1 request to the Tiana Gateway and exposes the TFS1 inner
 response as a standard `Response`.
 
-The initial package is private and unreleased. Its wire authority is the
-immutable Contracts release `v0.17.2-rc.1` at commit
+The initial package is private and unreleased. Its historical Fetch v1 compatibility baseline is
+Contracts release `v0.17.2-rc.1` at commit
 `d252fd7bf689657e50b6caf36298f8c57860df6b` (annotated tag object
 `fb4fdf07f6e5b86eb00562f07dccf7bd120cd0f2`).
 
@@ -46,6 +46,19 @@ corepack pnpm check
 ```
 
 The runtime has no production dependencies and uses only standard Fetch,
-Web Streams, URL, Encoding, and Web Crypto APIs. Node and Bun are exercised
-locally. Deno must be reported as unverified when it is not installed; a
+Web Streams, URL, Encoding, and Web Crypto APIs. Node and Bun have local test coverage. Deno must be reported as unverified when it is not installed; a
 different runtime must never be inferred from TypeScript compilation alone.
+
+The SDK owns its codec, limits, and behavior tests. The byte vectors under
+`tests/fixtures` retain their historical provenance and remain local regression
+inputs. Build, test, and packaging do not read a Contracts or Specifications
+checkout, fetch a historical distribution, or validate a central Schema.
+
+For cross-implementation testing, `tests/gateway-interop.mjs` accepts an
+unpacked SDK package's `dist/index.js` and a Gateway loopback fixture JSON as
+explicit arguments. It imports the packaged adapter and exchanges requests
+with the real Rust ingress over TLS H1/H2. Its Node HTTP transport preserves
+SDK-produced frame bytes and maps the configured Endpoint to loopback using
+the fixture certificate. Gateway's `docs/fetch-interop.md` describes the
+fixture lifecycle and backend test doubles. This optional test does not run
+as part of the standalone SDK suite.

@@ -99,30 +99,14 @@ test("TypeScript null-length metadata matches released canonical bytes", async (
   assert.deepEqual(decodeResponseMetadata(responseBytes), JSON.parse(responseText));
 });
 
-test("runtime hard limits match the vendored Contracts schema", async () => {
-  const schema = JSON.parse(
-    await readFile(`${testsRoot}contracts/fetch-v1.schema.json`, "utf8"),
-  );
-  const definitions = schema.$defs;
-  assert.equal(definitions.requestMetadata.properties.headers.maxItems, FETCH_MAX_HEADERS);
-  assert.equal(definitions.header.properties.name.maxLength, FETCH_MAX_HEADER_NAME_BYTES);
-  assert.equal(definitions.header.properties.value.maxLength, FETCH_MAX_HEADER_VALUE_BYTES);
-  assert.equal(
-    definitions.requestMetadata.properties.path_query.maxLength,
-    FETCH_MAX_PATH_QUERY_BYTES,
-  );
-  assert.equal(
-    definitions.requestMetadata.properties.body_length.oneOf[1].maximum,
-    FETCH_MAX_REQUEST_BODY_BYTES,
-  );
-  assert.equal(
-    definitions.responseMetadata.properties.body_length.oneOf[1].maximum,
-    FETCH_MAX_RESPONSE_BODY_BYTES,
-  );
-  assert.equal(
-    definitions.error.properties.retry_after_ms.maximum,
-    FETCH_MAX_RETRY_AFTER_MS,
-  );
+test("Fetch v1 hard limits remain compatible", () => {
+  assert.equal(FETCH_MAX_HEADERS, 128);
+  assert.equal(FETCH_MAX_HEADER_NAME_BYTES, 256);
+  assert.equal(FETCH_MAX_HEADER_VALUE_BYTES, 16_384);
+  assert.equal(FETCH_MAX_PATH_QUERY_BYTES, 16_384);
+  assert.equal(FETCH_MAX_REQUEST_BODY_BYTES, 16_777_216);
+  assert.equal(FETCH_MAX_RESPONSE_BODY_BYTES, 16_777_216);
+  assert.equal(FETCH_MAX_RETRY_AFTER_MS, 60_000);
 });
 
 test("all released canonical outer errors decode with their exact status", async () => {
