@@ -74,18 +74,26 @@ test("adapter normalizes one request, emits TFQ1 once, and returns inner Respons
         ),
       );
       assert.ok(
+        request.metadata.headers.some(
+          ({ name, value }) => name === "x-test" && value === "one, two",
+        ),
+      );
+      assert.ok(
         request.metadata.headers.every(({ value }) => !value.includes(tianaToken)),
       );
       return successResponse(successFrame(request));
     },
   });
 
+  const headers = new Headers({
+    authorization: "Bearer db-test",
+    "content-type": "application/json",
+  });
+  headers.append("x-test", "one");
+  headers.append("x-test", "two");
   const response = await adapter(new URL(`${origin}/v2/pipeline?x=1`), {
     method: "POST",
-    headers: {
-      authorization: "Bearer db-test",
-      "content-type": "application/json",
-    },
+    headers,
     body: '{"q":1}',
   });
 
@@ -102,6 +110,7 @@ test("adapter normalizes one request, emits TFQ1 once, and returns inner Respons
     captured.init.headers.get("content-type"),
     "application/vnd.tiana.fetch.v1",
   );
+  assert.equal(captured.init.headers.get("content-encoding"), null);
   assert.equal(response.status, 201);
   assert.equal(response.statusText, "Created");
   assert.equal(response.url, `${origin}/v2/pipeline?x=1`);
@@ -330,7 +339,8 @@ test("preflight failures cancel pending request bodies without leaking the Token
   assert.equal(calls, 0);
 });
 
-test("transport rejection cancels an unconsumed inner request body", async () => {
+test("transport rejection cancels an unconsumed inner request body without retry", async () => {
+  let calls = 0;
   let cancelled = false;
   const body = new ReadableStream({
     pull(controller) {
@@ -345,6 +355,7 @@ test("transport rejection cancels an unconsumed inner request body", async () =>
     origin,
     tianaToken,
     async fetch() {
+      calls += 1;
       throw transportError;
     },
   });
@@ -356,6 +367,7 @@ test("transport rejection cancels an unconsumed inner request body", async () =>
     }),
     transportError,
   );
+  assert.equal(calls, 1);
   assert.equal(cancelled, true);
 });
 
