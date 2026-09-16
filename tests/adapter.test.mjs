@@ -854,3 +854,45 @@ test("abort safely interrupts a pending request-body read", async () => {
   await assert.rejects(result, { name: "AbortError" });
   assert.equal(bodyCancelled, true);
 });
+
+test("tiana-http sends a finite binary frame with protocol metadata and exact UTF-8 length", async () => {
+  const body = JSON.stringify({ sql: "SELECT '你好';" });
+  const adapter = createTianaFetch({
+    origin, tianaToken, protocol: "tiana-http",
+    async fetch(input, init) {
+      assert.equal(input, `${origin}/v1/fetch`);
+      assert.ok(init.body instanceof Uint8Array);
+      assert.equal(init.duplex, undefined);
+      const request = decodeRequestFrameBytes(init.body);
+      assert.equal(request.metadata.protocol, "tiana-http");
+      assert.equal(request.metadata.path_query, "/arbitrary/app/path?x=1");
+      assert.equal(request.metadata.body_length, Buffer.byteLength(body));
+      assert.equal(new TextDecoder().decode(request.body), body);
+      assert.ok(request.metadata.headers.every(h => h.name !== "protocol"));
+      return successResponse(successFrame(request));
+    },
+  });
+  const response = await adapter(`${origin}/arbitrary/app/path?x=1`, {
+    method: "POST", body, headers: { "content-type": "application/json" },
+  });
+  assert.deepEqual(await response.json(), { ok: 1 });
+});
+
+test("tiana-http cancels while reading its body before sending", async () => {
+  const controller = new AbortController();
+  let sent = false;
+  const body = new ReadableStream({
+    pull(stream) {
+      const reason = new Error("cancel preparation");
+      controller.abort(reason);
+      stream.error(reason);
+    },
+  });
+  const adapter = createTianaFetch({ origin, tianaToken, protocol: "tiana-http",
+    fetch() { sent = true; throw new Error("unexpected send"); },
+  });
+  await assert.rejects(adapter(`${origin}/v1/sql`, {
+    method: "POST", body, duplex: "half", signal: controller.signal,
+  }), /cancel preparation/);
+  assert.equal(sent, false);
+});

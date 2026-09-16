@@ -35,6 +35,7 @@ export interface FetchHeader {
 export interface FetchRequestMetadata {
   readonly metadata_version: 1;
   readonly request_id: string;
+  readonly protocol?: "tiana-http";
   readonly method: FetchMethod;
   readonly path_query: string;
   readonly headers: readonly FetchHeader[];
@@ -326,6 +327,9 @@ export function validateRequestMetadata(metadata: FetchRequestMetadata): void {
   if (!requestIdPattern.test(metadata.request_id)) {
     throw protocolError("Fetch request_id is invalid");
   }
+  if (metadata.protocol !== undefined && metadata.protocol !== "tiana-http") {
+    throw protocolError("Fetch protocol is invalid");
+  }
   if (!methodSet.has(metadata.method)) {
     throw protocolError("Fetch method is invalid");
   }
@@ -379,6 +383,7 @@ function canonicalRequestObject(metadata: FetchRequestMetadata): FetchRequestMet
   return {
     metadata_version: 1,
     request_id: metadata.request_id,
+    ...(metadata.protocol === undefined ? {} : { protocol: metadata.protocol }),
     method: metadata.method,
     path_query: metadata.path_query,
     headers: metadata.headers.map(({ name, value }) => ({ name, value })),
@@ -467,6 +472,7 @@ export function decodeRequestMetadata(bytes: Uint8Array): FetchRequestMetadata {
   assertExactKeys(parsed, [
     "metadata_version",
     "request_id",
+    ...("protocol" in parsed ? ["protocol"] : []),
     "method",
     "path_query",
     "headers",
@@ -475,6 +481,7 @@ export function decodeRequestMetadata(bytes: Uint8Array): FetchRequestMetadata {
   if (
     parsed.metadata_version !== 1 ||
     typeof parsed.request_id !== "string" ||
+    ("protocol" in parsed && parsed.protocol !== "tiana-http") ||
     typeof parsed.method !== "string" ||
     !methodSet.has(parsed.method as FetchMethod) ||
     typeof parsed.path_query !== "string" ||
@@ -485,6 +492,7 @@ export function decodeRequestMetadata(bytes: Uint8Array): FetchRequestMetadata {
   const metadata: FetchRequestMetadata = {
     metadata_version: 1,
     request_id: parsed.request_id,
+    ...(parsed.protocol === "tiana-http" ? { protocol: parsed.protocol } : {}),
     method: parsed.method as FetchMethod,
     path_query: parsed.path_query,
     headers: decodeHeaders(parsed.headers),

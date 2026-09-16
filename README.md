@@ -38,6 +38,37 @@ The configured origin is restricted to the frozen v1 public authority:
 port 443. Arbitrary hosts, IP literals, localhost, alternate ports, paths,
 queries, fragments, and embedded credentials are rejected before transport.
 
+## App HTTP data API
+
+```ts
+const http = createTianaFetch({
+  origin: databaseOrigin,
+  tianaToken,
+  protocol: "tiana-http",
+});
+const response = await http(`${databaseOrigin}/v1/sql`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ sql: "SELECT 1 AS answer;" }),
+});
+const result = await response.json();
+```
+
+The optional protocol is top-level Fetch metadata, consumed by Gateway to
+select the App HTTP data socket. Omitting it selects the existing native data
+socket. Gateway forwards the inner path; `/v1/sql` belongs to the SQLite App.
+
+The HTTP data adapter reads the complete request body before sending its
+binary frame and retains streaming response decoding. It uses the existing
+request-size bound and does not require browser request-stream support.
+Abort cancels this call; requests are never replayed. Gateway handles CORS
+preflight for arbitrary browser origins; actual requests retain Tiana Token
+authorization and use `credentials: "omit"`.
+
+Each call owns an independent App connection. Send `BEGIN; ...; COMMIT;` in
+one request. Separate calls do not share a connection transaction or TEMP
+state; SQL errors and partial success keep the App's existing semantics.
+
 ## Development
 
 ```sh
@@ -62,3 +93,9 @@ SDK-produced frame bytes and maps the configured Endpoint to loopback using
 the fixture certificate. Gateway's `docs/fetch-interop.md` describes the
 fixture lifecycle and backend test doubles. This optional test does not run
 as part of the standalone SDK suite.
+
+The optional `tests/run-http-data-interop.py` takes explicit Agent/Gateway
+checkouts, a built SQLite binary and an output directory. It runs the real
+data path with fixture policy/binding inputs, including 100 warm H1/H2 calls.
+`--playwright-module` adds real Chromium/Firefox/WebKit cross-origin calls.
+This is separate from standard cold activation and deployed edge acceptance.

@@ -13,6 +13,7 @@ const options: TianaFetchOptions = {
   ),
   tianaToken: `tia_${"A".repeat(42)}A`,
   fetch: globalThis.fetch,
+  protocol: "tiana-http",
 };
 
 const tianaFetch: TianaFetch = createTianaFetch(options);

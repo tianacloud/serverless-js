@@ -1,5 +1,6 @@
 import {
   createRequestFrameStream,
+  encodeRequestFrameBytes,
   decodeResponseStream,
 } from "./codec.js";
 import { protocolError } from "./errors.js";
@@ -9,6 +10,7 @@ import {
   FETCH_MAX_ERROR_BODY_BYTES,
   FETCH_MEDIA_TYPE,
   FETCH_PATH,
+  FETCH_MAX_REQUEST_BODY_BYTES,
   isRegisteredOuterStatus,
   type FetchError,
   type FetchErrorCode,
@@ -37,6 +39,9 @@ export interface TianaFetchOptions {
 
   /** Raw outer Tiana Token. It is never copied into TFQ1 metadata. */
   readonly tianaToken: string;
+
+  /** Select the App HTTP data socket. Omit for the native data socket. */
+  readonly protocol?: "tiana-http";
 
   /** Optional platform-compatible transport. It is invoked exactly once. */
   readonly fetch?: typeof globalThis.fetch;
@@ -217,6 +222,23 @@ async function readBoundedBody(
   return bytes;
 }
 
+async function readRequestBody(request: Request): Promise<Uint8Array> {
+  if (request.signal.aborted) throw abortReason(request.signal);
+  let onAbort: () => void = () => undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(abortReason(request.signal));
+    request.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const body = new Uint8Array(await Promise.race([request.arrayBuffer(), aborted]));
+    if (request.signal.aborted) throw abortReason(request.signal);
+    if (body.byteLength > FETCH_MAX_REQUEST_BODY_BYTES) throw protocolError("Fetch body exceeds the SDK bound");
+    return body;
+  } finally {
+    request.signal.removeEventListener("abort", onAbort);
+  }
+}
+
 function responseWithUrl(response: Response, url: string): Response {
   try {
     Object.defineProperty(response, "url", {
@@ -296,6 +318,10 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
   if (typeof options !== "object" || options === null) {
     throw new TypeError("Tiana Fetch options are required");
   }
+  if (options.protocol !== undefined && options.protocol !== "tiana-http") {
+    throw new TypeError("Unsupported Tiana Fetch protocol");
+  }
+  const protocol = options.protocol;
   const origin = normalizeOrigin(options.origin);
   if (!tianaTokenPattern.test(options.tianaToken)) {
     throw new TypeError("tianaToken does not match the v1 token grammar");
@@ -310,7 +336,7 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
     let metadata: FetchRequestMetadata;
-    let frame: ReadableStream<Uint8Array>;
+    let frame: ReadableStream<Uint8Array> | Uint8Array<ArrayBuffer>;
     try {
       const url = new URL(request.url);
       if (url.origin !== origin) {
@@ -323,7 +349,13 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
         throw abortReason(request.signal);
       }
       metadata = requestMetadata(request, tianaToken);
-      frame = createRequestFrameStream(metadata, request.body, request.signal);
+      if (protocol === "tiana-http") {
+        const body = await readRequestBody(request);
+        metadata = { ...metadata, protocol, body_length: body.byteLength };
+        frame = new Uint8Array(encodeRequestFrameBytes(metadata, body));
+      } else {
+        frame = createRequestFrameStream(metadata, request.body, request.signal);
+      }
     } catch (error) {
       await request.body?.cancel(error).catch(() => undefined);
       throw error;
@@ -332,7 +364,7 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
     headers.set("authorization", `Bearer ${tianaToken}`);
     headers.set("cache-control", "no-store");
     headers.set("content-type", FETCH_MEDIA_TYPE);
-    const outerInit: RequestInit & { duplex: "half" } = {
+    const outerInit: RequestInit & { duplex?: "half" } = {
       method: "POST",
       headers,
       body: frame,
@@ -340,13 +372,15 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
       cache: "no-store",
       credentials: "omit",
       redirect: "error",
-      duplex: "half",
+      ...(frame instanceof ReadableStream ? { duplex: "half" as const } : {}),
     };
     let outer: Response;
     try {
       outer = await fetchImplementation(gatewayUrl, outerInit);
     } catch (error) {
-      await frame.cancel(error).catch(() => undefined);
+      if (frame instanceof ReadableStream) {
+        await frame.cancel(error).catch(() => undefined);
+      }
       throw error;
     }
     if (outer.status !== 200) {
