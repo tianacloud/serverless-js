@@ -60,10 +60,11 @@ try {
     try {await (await running).text();} catch(e) {inFlightCancelled=e.name==='AbortError';}
     if(!inFlightCancelled) throw Error('in-flight cancellation failed');
     const concurrent=await Promise.all(Array.from({length:4},async()=>{
-      const result=await (await query('SELECT 42;')).json();
-      return result.ok && result.results[0].result.rows[0][0]==='42';
+      const response=await query('SELECT 42;');
+      return {status:response.status,body:await response.json()};
     }));
-    if(!concurrent.every(Boolean)) throw Error('concurrent requests after cancellation failed');
+    if(!concurrent.every(({status,body})=>status===200 && body.ok && body.results[0].result.rows[0][0]==='42'))
+      throw Error('concurrent requests after cancellation failed: '+JSON.stringify(concurrent));
     return {sql:true,app_status:404,platform_error_status:error.status,cancelled,inFlightCancelled,concurrent:4};
    },config);
    results.push({browser:name,version:browser.version(),result:'PASS',...result});
