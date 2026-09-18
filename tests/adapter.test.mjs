@@ -443,10 +443,6 @@ test("invalid configured origins and tokens fail closed", () => {
     /canonical v1 Endpoint authority/,
   );
   assert.throws(
-    () => createTianaFetch({ origin: `${origin}:8443`, tianaToken }),
-    /absolute HTTPS origin/,
-  );
-  assert.throws(
     () => createTianaFetch({ origin: "http://example.com", tianaToken }),
     /absolute HTTPS origin/,
   );
@@ -895,4 +891,25 @@ test("tiana-http cancels while reading its body before sending", async () => {
     method: "POST", body, duplex: "half", signal: controller.signal,
   }), /cancel preparation/);
   assert.equal(sent, false);
+});
+
+
+test("buffered native requests preserve configured HTTPS ports and reject other origins", async () => {
+  const endpoint = `${origin}:9443`;
+  let calls = 0;
+  const adapter = createTianaFetch({ origin: endpoint, tianaToken, requestBodyMode: "buffered",
+    async fetch(input, init) {
+      calls++;
+      assert.equal(input, `${endpoint}/v1/fetch`);
+      assert.ok(init.body instanceof Uint8Array);
+      assert.equal(init.duplex, undefined);
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.protocol, undefined);
+      return successResponse(successFrame(request));
+    },
+  });
+  const response = await adapter(`${endpoint}/v2/pipeline`, { method: "POST", body: "{}" });
+  assert.equal(await response.text(), '{"ok":1}');
+  await assert.rejects(adapter(`${origin}/v2/pipeline`), /origin does not match/);
+  assert.equal(calls, 1);
 });

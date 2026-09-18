@@ -1,6 +1,6 @@
 {
   "name": "@tiana/serverless",
-  "version": "0.1.0-dev.0",
+  "version": "0.1.0-dev.1",
   "description": "Tiana Fetch-over-HTTPS transport for serverless and edge JavaScript runtimes",
   "type": "module",
   "private": true,

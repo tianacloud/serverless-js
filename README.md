@@ -34,9 +34,12 @@ whose normalized origin differs from the configured origin. It performs one
 outer request and never retries automatically.
 
 The configured origin is restricted to the frozen v1 public authority:
-`ep-[0-7][0-9a-hjkmnp-tv-z]{25}.db.service.internal.tiana.com` on logical
-port 443. Arbitrary hosts, IP literals, localhost, alternate ports, paths,
+`ep-[0-7][0-9a-hjkmnp-tv-z]{25}.db.service.internal.tiana.com` with HTTPS
+on the deployment port (443 by default). Arbitrary hosts, IP literals, localhost, paths,
 queries, fragments, and embedded credentials are rejected before transport.
+
+Browser transports can set `requestBodyMode: "buffered"` for native data
+requests. HTTP data requests are always buffered. Responses remain streamed.
 
 ## App HTTP data API
 

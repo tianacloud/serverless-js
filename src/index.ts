@@ -43,6 +43,9 @@ export interface TianaFetchOptions {
   /** Select the App HTTP data socket. Omit for the native data socket. */
   readonly protocol?: "tiana-http";
 
+  /** Buffer the request frame for browser transports without upload streaming. */
+  readonly requestBodyMode?: "stream" | "buffered";
+
   /** Optional platform-compatible transport. It is invoked exactly once. */
   readonly fetch?: typeof globalThis.fetch;
 }
@@ -73,8 +76,7 @@ function normalizeOrigin(value: string | URL): string {
     url.password !== "" ||
     url.pathname !== "/" ||
     url.search !== "" ||
-    url.hash !== "" ||
-    url.port !== ""
+    url.hash !== ""
   ) {
     throw new TypeError("Tiana origin must be an absolute HTTPS origin URL");
   }
@@ -322,6 +324,10 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
     throw new TypeError("Unsupported Tiana Fetch protocol");
   }
   const protocol = options.protocol;
+  const requestBodyMode = options.requestBodyMode ?? "stream";
+  if (requestBodyMode !== "stream" && requestBodyMode !== "buffered") {
+    throw new TypeError("requestBodyMode must be either stream or buffered");
+  }
   const origin = normalizeOrigin(options.origin);
   if (!tianaTokenPattern.test(options.tianaToken)) {
     throw new TypeError("tianaToken does not match the v1 token grammar");
@@ -349,9 +355,9 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
         throw abortReason(request.signal);
       }
       metadata = requestMetadata(request, tianaToken);
-      if (protocol === "tiana-http") {
+      if (protocol === "tiana-http" || requestBodyMode === "buffered") {
         const body = await readRequestBody(request);
-        metadata = { ...metadata, protocol, body_length: body.byteLength };
+        metadata = { ...metadata, ...(protocol ? { protocol } : {}), body_length: body.byteLength };
         frame = new Uint8Array(encodeRequestFrameBytes(metadata, body));
       } else {
         frame = createRequestFrameStream(metadata, request.body, request.signal);
