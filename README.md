@@ -33,6 +33,9 @@ the platform `Request` constructor for normalization, and rejects any request
 whose normalized origin differs from the configured origin. It performs one
 outer request and never retries automatically.
 
+Tokens are opaque credential strings, forwarded unchanged to Gateway in the
+outer Authorization header. The adapter does not interpret their scope or encoding.
+
 The configured origin is restricted to the frozen v1 public authority:
 `ep-[0-7][0-9a-hjkmnp-tv-z]{25}.db.service.internal.tiana.com` with HTTPS
 on the deployment port (443 by default). Arbitrary hosts, IP literals, localhost, paths,

@@ -447,12 +447,31 @@ test("invalid configured origins and tokens fail closed", () => {
     /absolute HTTPS origin/,
   );
   assert.throws(
-    () => createTianaFetch({ origin, tianaToken: "tia_secret" }),
-    /token grammar/,
+    () => createTianaFetch({ origin, tianaToken: "" }),
+    /tianaToken is required/,
   );
   assert.doesNotThrow(() =>
     createTianaFetch({ origin: origin.toUpperCase(), tianaToken }),
   );
+});
+
+test("opaque credentials reach the outer request unchanged", async () => {
+  for (const token of ["opaque-credential", `tia_2${"A".repeat(43)}`, "future:credential:any-length"]) {
+    let calls = 0;
+    const adapter = createTianaFetch({
+      origin,
+      tianaToken: token,
+      async fetch(input, init) {
+        calls++;
+        assert.equal(init.headers.get("authorization"), `Bearer ${token}`);
+        const request = decodeRequestFrameBytes(await requestBytes(init));
+        return successResponse(successFrame(request));
+      },
+    });
+    const response = await adapter(`${origin}/v1/query`);
+    assert.equal(response.status, 201);
+    assert.equal(calls, 1);
+  }
 });
 
 test("canonical outer error is returned once and is never retried", async () => {

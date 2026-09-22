@@ -50,7 +50,6 @@ export interface TianaFetchOptions {
   readonly fetch?: typeof globalThis.fetch;
 }
 
-const tianaTokenPattern = /^tia_[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 const endpointHostnamePattern =
   /^ep-[0-7][0-9a-hjkmnp-tv-z]{25}\.db\.service\.internal\.tiana\.com$/;
 const allowedMethods = new Set<FetchMethod>([
@@ -329,8 +328,8 @@ export function createTianaFetch(options: TianaFetchOptions): TianaFetch {
     throw new TypeError("requestBodyMode must be either stream or buffered");
   }
   const origin = normalizeOrigin(options.origin);
-  if (!tianaTokenPattern.test(options.tianaToken)) {
-    throw new TypeError("tianaToken does not match the v1 token grammar");
+  if (typeof options.tianaToken !== "string" || options.tianaToken.length === 0) {
+    throw new TypeError("tianaToken is required");
   }
   const tianaToken = options.tianaToken;
   const fetchImplementation = options.fetch ?? globalThis.fetch?.bind(globalThis);
