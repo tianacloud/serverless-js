@@ -1,7 +1,7 @@
 import {
   createTianaFetch,
   TianaFetchProtocolError,
-} from "@tiana/serverless";
+} from "@tianadb/serverless";
 import {
   decodeRequestFrameBytes,
   encodeResponseFrameBytes,

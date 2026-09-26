@@ -26,6 +26,7 @@ export type {
   FetchErrorCode,
   FetchErrorResponse,
   FetchHeader,
+  FetchQuotaReason,
 } from "./protocol.js";
 
 export type TianaFetch = (

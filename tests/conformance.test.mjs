@@ -123,6 +123,59 @@ test("all released canonical outer errors decode with their exact status", async
   }
 });
 
+test("quota errors preserve their registered reason without relaxing JSON fields", () => {
+  for (const reason of ["compute", "storage", "compute_and_storage"]) {
+    const parsed = {
+      error: {
+        code: "QUOTA_EXCEEDED",
+        message: "tenant quota exceeded",
+        reason,
+        retryable: false,
+        request_not_executed: true,
+      },
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(parsed));
+    assert.deepEqual(decodeErrorResponse(bytes, 403), parsed);
+  }
+
+  for (const error of [
+    {
+      code: "QUOTA_EXCEEDED",
+      message: "tenant quota exceeded",
+      retryable: false,
+      request_not_executed: true,
+    },
+    {
+      code: "QUOTA_EXCEEDED",
+      message: "tenant quota exceeded",
+      reason: "unknown",
+      retryable: false,
+      request_not_executed: true,
+    },
+    {
+      code: "FETCH_ACCESS_DENIED",
+      message: "access denied",
+      reason: "compute",
+      retryable: false,
+      request_not_executed: true,
+    },
+    {
+      code: "QUOTA_EXCEEDED",
+      message: "tenant quota exceeded",
+      reason: "compute",
+      retryable: false,
+      request_not_executed: true,
+      extra: true,
+    },
+  ]) {
+    const bytes = new TextEncoder().encode(JSON.stringify({ error }));
+    assert.throws(
+      () => decodeErrorResponse(bytes, 403),
+      TianaFetchProtocolError,
+    );
+  }
+});
+
 test("all 51 released negative fixtures fail closed", async () => {
   const names = (await readdir(`${fixtureRoot}negative/fetch`)).sort();
   assert.equal(names.length, 51);

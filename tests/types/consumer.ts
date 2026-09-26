@@ -2,10 +2,11 @@ import {
   createTianaFetch,
   TianaFetchProtocolError,
   type FetchErrorResponse,
+  type FetchQuotaReason,
   type TianaFetch,
   type TianaFetchOptions,
   type TianaOuterErrorCode,
-} from "@tiana/serverless";
+} from "@tianadb/serverless";
 
 const options: TianaFetchOptions = {
   origin: new URL(
@@ -34,7 +35,18 @@ const body: FetchErrorResponse = {
   },
 };
 const protocolError: Error = new TianaFetchProtocolError("invalid frame");
+const quotaReason: FetchQuotaReason = "compute";
+const quotaBody: FetchErrorResponse = {
+  error: {
+    code: "QUOTA_EXCEEDED",
+    message: "tenant quota exceeded",
+    reason: quotaReason,
+    retryable: false,
+    request_not_executed: true,
+  },
+};
 
 void response;
 void body;
+void quotaBody;
 void protocolError;

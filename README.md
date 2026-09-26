@@ -1,11 +1,11 @@
-# `@tiana/serverless`
+# `@tianadb/serverless`
 
-`@tiana/serverless` is the JavaScript/TypeScript Custom Fetch adapter for
+`@tianadb/serverless` is the JavaScript/TypeScript Custom Fetch adapter for
 Tiana Fetch-over-HTTPS v1. It converts one standard same-origin `fetch()`
 request into a TFQ1 request to the Tiana Gateway and exposes the TFS1 inner
 response as a standard `Response`.
 
-The initial package is private and unreleased. Its historical Fetch v1 compatibility baseline is
+Install the prerelease with `npm install @tianadb/serverless@next`. Its historical Fetch v1 compatibility baseline is
 Contracts release `v0.17.2-rc.1` at commit
 `d252fd7bf689657e50b6caf36298f8c57860df6b` (annotated tag object
 `fb4fdf07f6e5b86eb00562f07dccf7bd120cd0f2`).
@@ -13,7 +13,7 @@ Contracts release `v0.17.2-rc.1` at commit
 ## Intended use
 
 ```ts
-import { createTianaFetch } from "@tiana/serverless";
+import { createTianaFetch } from "@tianadb/serverless";
 
 const databaseOrigin =
   "https://ep-01j5c9m7q2v8x4k6n3r0t1w2yz.db.service.internal.tiana.com";

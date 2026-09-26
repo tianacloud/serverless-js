@@ -70,6 +70,12 @@ const ERROR_DEFINITIONS = {
     retryable: false,
     retryAfter: "forbidden",
   },
+  QUOTA_EXCEEDED: {
+    status: 403,
+    message: "tenant quota exceeded",
+    retryable: false,
+    retryAfter: "forbidden",
+  },
   FETCH_ENDPOINT_NOT_FOUND: {
     status: 404,
     message: "endpoint not found",
@@ -133,10 +139,12 @@ const ERROR_DEFINITIONS = {
 } as const;
 
 export type FetchErrorCode = keyof typeof ERROR_DEFINITIONS;
+export type FetchQuotaReason = "compute" | "storage" | "compute_and_storage";
 
 export interface FetchError {
   readonly code: FetchErrorCode;
   readonly message: string;
+  readonly reason?: FetchQuotaReason;
   readonly retryable: boolean;
   readonly request_not_executed: true;
   readonly retry_after_ms?: number;
@@ -157,6 +165,11 @@ const methodSet = new Set<FetchMethod>([
   "PATCH",
   "DELETE",
   "OPTIONS",
+]);
+const quotaReasonSet = new Set<FetchQuotaReason>([
+  "compute",
+  "storage",
+  "compute_and_storage",
 ]);
 
 const forbiddenHeaders = new Set([
@@ -559,6 +572,7 @@ function canonicalErrorObject(error: FetchError): FetchErrorResponse {
     error: {
       code: FetchErrorCode;
       message: string;
+      reason?: FetchQuotaReason;
       retryable: boolean;
       request_not_executed: true;
       retry_after_ms?: number;
@@ -567,6 +581,7 @@ function canonicalErrorObject(error: FetchError): FetchErrorResponse {
     error: {
       code: error.code,
       message: error.message,
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
       retryable: error.retryable,
       request_not_executed: true,
     },
@@ -595,7 +610,7 @@ export function decodeErrorResponse(
   assertExactKeys(
     parsed.error,
     ["code", "message", "retryable", "request_not_executed"],
-    ["retry_after_ms"],
+    ["reason", "retry_after_ms"],
   );
   if (
     typeof parsed.error.code !== "string" ||
@@ -614,6 +629,14 @@ export function decodeErrorResponse(
     definition.retryable !== parsed.error.retryable
   ) {
     throw protocolError("Fetch error tuple does not match the v1 registry");
+  }
+  const reason = parsed.error.reason;
+  if (code === "QUOTA_EXCEEDED") {
+    if (typeof reason !== "string" || !quotaReasonSet.has(reason as FetchQuotaReason)) {
+      throw protocolError("Fetch quota reason is invalid");
+    }
+  } else if (reason !== undefined) {
+    throw protocolError("Fetch error reason is only valid for quota errors");
   }
   const retryAfter = parsed.error.retry_after_ms;
   if (retryAfter !== undefined) {
@@ -636,12 +659,14 @@ export function decodeErrorResponse(
     ? {
         code,
         message: parsed.error.message,
+        ...(reason === undefined ? {} : { reason: reason as FetchQuotaReason }),
         retryable: parsed.error.retryable,
         request_not_executed: true,
       }
     : {
         code,
         message: parsed.error.message,
+        ...(reason === undefined ? {} : { reason: reason as FetchQuotaReason }),
         retryable: parsed.error.retryable,
         request_not_executed: true,
         retry_after_ms: retryAfter,
