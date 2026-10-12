@@ -1,0 +1,1134 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  decodeRequestFrameBytes,
+  encodeResponseFrameBytes,
+} from "../dist/codec.js";
+import {
+  createTianaFetch,
+  diagnosisOf,
+  TianaFetchProtocolError,
+} from "../dist/index.js";
+
+const origin =
+  "https://ep-01j5c9m7q2v8x4k6n3r0t1w2yz.db.service.internal.tiana.com";
+const tianaToken = `tia_0${"A".repeat(42)}A`;
+const fixtureRoot = fileURLToPath(new URL("./fixtures/", import.meta.url));
+const maxBodyBytes = 16 << 20;
+
+test("diagnostics expose one request ID through response body completion", async () => {
+  const events = [];
+  let sentId;
+  const adapter = createTianaFetch({
+    origin, tianaToken,
+    onDiagnostic(event) { events.push(event); },
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      sentId = new Headers(init.headers).get("x-request-id");
+      assert.equal(sentId, request.metadata.request_id);
+      return successResponse(successFrame(request));
+    },
+  });
+  const input = new Request(`${origin}/v1/sql`);
+  const response = await adapter(input);
+  assert.equal(diagnosisOf(input).requestId, sentId);
+  assert.equal(diagnosisOf(response).requestId, sentId);
+  assert.equal(diagnosisOf(response).phase, "response_started");
+  assert.deepEqual(await response.json(), { ok: 1 });
+  assert.equal(diagnosisOf(response).phase, "completed");
+  assert.deepEqual(events.map(event => event.phase),
+    ["request_started", "response_started", "completed"]);
+});
+
+test("diagnostics retain ID after a response body truncation", async () => {
+  const events = [];
+  const adapter = createTianaFetch({
+    origin, tianaToken, onDiagnostic(event) { events.push(event); },
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      const frame = successFrame(request);
+      return successResponse(frame.subarray(0, frame.byteLength - 1));
+    },
+  });
+  const response = await adapter(`${origin}/v1/sql`);
+  let failure;
+  try {
+    await response.text();
+  } catch (error) {
+    failure = error;
+  }
+  assert.ok(failure instanceof Error);
+  assert.equal(diagnosisOf(failure).requestId, diagnosisOf(response).requestId);
+  assert.equal(diagnosisOf(response).phase, "failed");
+  assert.equal(events.at(-1).phase, "failed");
+});
+
+test("diagnostic callback failures and primitive Abort reasons preserve Fetch behavior", async () => {
+  const controller = new AbortController();
+  const events = [];
+  const adapter = createTianaFetch({
+    origin, tianaToken,
+    onDiagnostic(event) {
+      events.push(event);
+      throw new Error("observer failed");
+    },
+    fetch() { throw new Error("pre-aborted request reached transport"); },
+  });
+  controller.abort("stop");
+  await assert.rejects(adapter(`${origin}/v1/sql`, { signal: controller.signal }),
+    error => error === "stop");
+  assert.deepEqual(events.map(event => event.phase), ["request_started", "cancelled"]);
+  assert.equal(events[0].requestId, events[1].requestId);
+});
+
+async function requestBytes(init) {
+  return new Uint8Array(await new Response(init.body).arrayBuffer());
+}
+
+function successFrame(request, overrides = {}) {
+  const body = new TextEncoder().encode('{"ok":1}');
+  const metadata = {
+    metadata_version: 1,
+    request_id: request.metadata.request_id,
+    status: 201,
+    status_text: "Created",
+    headers: [
+      { name: "content-type", value: "application/json" },
+      { name: "set-cookie", value: "a=1" },
+      { name: "set-cookie", value: "b=2" },
+    ],
+    body_length: body.byteLength,
+    ...overrides,
+  };
+  return encodeResponseFrameBytes(metadata, body);
+}
+
+function successResponse(frame) {
+  return new Response(frame, {
+    status: 200,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/vnd.tiana.fetch.v1",
+    },
+  });
+}
+
+test("adapter normalizes one request, emits TFQ1 once, and returns inner Response", async () => {
+  let calls = 0;
+  let captured;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(input, init) {
+      calls += 1;
+      captured = { input, init };
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.path_query, "/v2/pipeline?x=1");
+      assert.equal(request.metadata.method, "POST");
+      assert.equal(request.metadata.body_length, null);
+      assert.match(
+        request.metadata.request_id,
+        /^req-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      assert.deepEqual(request.body, new TextEncoder().encode('{"q":1}'));
+      assert.ok(
+        request.metadata.headers.some(
+          ({ name, value }) => name === "authorization" && value === "Bearer db-test",
+        ),
+      );
+      assert.ok(
+        request.metadata.headers.some(
+          ({ name, value }) => name === "x-test" && value === "one, two",
+        ),
+      );
+      assert.ok(
+        request.metadata.headers.every(({ value }) => !value.includes(tianaToken)),
+      );
+      return successResponse(successFrame(request));
+    },
+  });
+
+  const headers = new Headers({
+    authorization: "Bearer db-test",
+    "content-type": "application/json",
+  });
+  headers.append("x-test", "one");
+  headers.append("x-test", "two");
+  const response = await adapter(new URL(`${origin}/v2/pipeline?x=1`), {
+    method: "POST",
+    headers,
+    body: '{"q":1}',
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(captured.input, `${origin}/v1/fetch`);
+  assert.equal(captured.init.method, "POST");
+  assert.equal(captured.init.cache, "no-store");
+  assert.equal(captured.init.credentials, "omit");
+  assert.equal(captured.init.redirect, "error");
+  assert.equal(captured.init.duplex, "half");
+  assert.equal(captured.init.headers.get("authorization"), `Bearer ${tianaToken}`);
+  assert.equal(captured.init.headers.get("cache-control"), "no-store");
+  assert.equal(
+    captured.init.headers.get("content-type"),
+    "application/vnd.tiana.fetch.v1",
+  );
+  assert.equal(captured.init.headers.get("content-encoding"), null);
+  assert.equal(response.status, 201);
+  assert.equal(response.statusText, "Created");
+  assert.equal(response.url, `${origin}/v2/pipeline?x=1`);
+  assert.deepEqual(response.headers.getSetCookie(), ["a=1", "b=2"]);
+  assert.equal(await response.text(), '{"ok":1}');
+});
+
+test("adapter streams an unknown-length Request body in order", async () => {
+  const chunks = [
+    new TextEncoder().encode("first-"),
+    new TextEncoder().encode("second"),
+  ];
+  const body = new ReadableStream({
+    pull(controller) {
+      const next = chunks.shift();
+      if (next === undefined) {
+        controller.close();
+      } else {
+        controller.enqueue(next);
+      }
+    },
+  });
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.body_length, null);
+      assert.equal(new TextDecoder().decode(request.body), "first-second");
+      return successResponse(successFrame(request));
+    },
+  });
+  const response = await adapter(`${origin}/v1/query`, {
+    method: "POST",
+    body,
+    duplex: "half",
+  });
+  assert.equal(response.status, 201);
+  assert.equal(await response.text(), '{"ok":1}');
+});
+
+test("Request input plus RequestInit uses native Fetch override semantics", async () => {
+  const input = new Request(`${origin}/v1/original?x=1`, {
+    method: "POST",
+    headers: { "x-original": "discarded" },
+  });
+  const overrides = {
+    method: "PUT",
+    headers: { "x-override": "yes" },
+    body: "replacement",
+  };
+  const native = new Request(input.clone(), overrides);
+  const expectedHeaders = [...native.headers].map(([name, value]) => ({ name, value }));
+  assert.equal(native.headers.get("x-original"), null);
+  assert.equal(native.headers.get("x-override"), "yes");
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.method, "PUT");
+      assert.equal(request.metadata.path_query, "/v1/original?x=1");
+      assert.deepEqual(request.metadata.headers, expectedHeaders);
+      assert.equal(new TextDecoder().decode(request.body), "replacement");
+      return successResponse(successFrame(request));
+    },
+  });
+  const response = await adapter(input, overrides);
+  assert.equal(response.status, 201);
+});
+
+test("exact-origin and controlled-header violations fail before transport", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw new Error("transport must not run");
+    },
+  });
+  await assert.rejects(
+    adapter("https://example.com/v1/query", { method: "POST" }),
+    /origin does not match/,
+  );
+  await assert.rejects(
+    adapter(`${origin}/v1/query#fragment`, { method: "POST" }),
+    /must not contain a fragment/,
+  );
+  await assert.rejects(
+    adapter(`${origin}/v1/query`, {
+      method: "POST",
+      headers: { "connection": "keep-alive" },
+    }),
+    TianaFetchProtocolError,
+  );
+  await assert.rejects(
+    adapter(`${origin}/v1/%00`, { method: "POST" }),
+    TianaFetchProtocolError,
+  );
+  await assert.rejects(
+    adapter(`${origin}/v1/query`, { method: "PROPFIND" }),
+    /does not support this request method/,
+  );
+  assert.equal(calls, 0);
+});
+
+test("the outer Tiana Token cannot enter TFQ1 metadata", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw new Error("transport must not run");
+    },
+  });
+  const cases = [
+    {
+      input: `${origin}/v1/query`,
+      init: {
+        method: "POST",
+        headers: { authorization: `Bearer ${tianaToken}` },
+      },
+    },
+    {
+      input: `${origin}/v1/query`,
+      init: {
+        method: "POST",
+        headers: { "x-debug-value": `prefix ${tianaToken} suffix` },
+      },
+    },
+    {
+      input: `${origin}/v1/query`,
+      init: {
+        method: "POST",
+        headers: { [tianaToken]: "inner-header-name" },
+      },
+    },
+    {
+      input: `${origin}/v1/query?credential=${tianaToken}`,
+      init: { method: "POST" },
+    },
+    {
+      input: `${origin}/v1/%74${tianaToken.slice(1)}`,
+      init: { method: "POST" },
+    },
+    {
+      input: `${origin}/v1/query?credential=%74${tianaToken.slice(1)}`,
+      init: { method: "POST" },
+    },
+  ];
+
+  for (const fixture of cases) {
+    await assert.rejects(
+      adapter(fixture.input, fixture.init),
+      (error) => {
+        assert.ok(error instanceof TianaFetchProtocolError);
+        assert.match(error.message, /must not appear in inner Fetch metadata/);
+        assert.equal(error.message.includes(tianaToken), false);
+        return true;
+      },
+    );
+  }
+  assert.equal(calls, 0);
+});
+
+test("preflight failures cancel pending request bodies without leaking the Token", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw new Error("transport must not run");
+    },
+  });
+  const cases = [
+    {
+      input: `${origin}/v1/query`,
+      headers: { authorization: `Bearer ${tianaToken}` },
+    },
+    {
+      input: `${origin}/v1/query?credential=${tianaToken}`,
+      headers: {},
+    },
+    {
+      input: `${origin}/v1/%74${tianaToken.slice(1)}`,
+      headers: {},
+    },
+    {
+      input: `${origin}/v1/query?credential=%74${tianaToken.slice(1)}`,
+      headers: {},
+    },
+    {
+      input: `${origin}/v1/query`,
+      headers: { "connection": "keep-alive" },
+    },
+    {
+      input: `${origin}/v1/query`,
+      headers: { [tianaToken]: "inner-header-name" },
+    },
+  ];
+
+  for (const fixture of cases) {
+    let cancelled = false;
+    const body = new ReadableStream({
+      pull() {},
+      cancel(reason) {
+        cancelled = true;
+        assert.equal(String(reason).includes(tianaToken), false);
+      },
+    });
+    await assert.rejects(
+      adapter(fixture.input, {
+        method: "POST",
+        headers: fixture.headers,
+        body,
+        duplex: "half",
+      }),
+      (error) => {
+        assert.equal(String(error).includes(tianaToken), false);
+        return true;
+      },
+    );
+    assert.equal(cancelled, true);
+  }
+  assert.equal(calls, 0);
+});
+
+test("transport rejection cancels an unconsumed inner request body without retry", async () => {
+  let calls = 0;
+  let cancelled = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      controller.enqueue(new TextEncoder().encode("pending"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const transportError = new Error("transport unavailable");
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw transportError;
+    },
+  });
+  await assert.rejects(
+    adapter(`${origin}/v1/query`, {
+      method: "POST",
+      body,
+      duplex: "half",
+    }),
+    transportError,
+  );
+  assert.equal(calls, 1);
+  assert.equal(cancelled, true);
+});
+
+test("invalid outer envelope headers cancel the unread response body", async () => {
+  const cases = [
+    {
+      headers: {
+        "cache-control": "public",
+        "content-type": "application/vnd.tiana.fetch.v1",
+      },
+      message: /Cache-Control/,
+    },
+    {
+      headers: {
+        "cache-control": "no-store",
+        "content-type": "application/vnd.tiana.fetch.v1; charset=utf-8",
+      },
+      message: /Content-Type/,
+    },
+    {
+      headers: {
+        "cache-control": "no-store",
+        "content-encoding": "gzip",
+        "content-type": "application/vnd.tiana.fetch.v1",
+      },
+      message: /Content-Encoding/,
+    },
+  ];
+
+  for (const fixture of cases) {
+    let cancelled = false;
+    const adapter = createTianaFetch({
+      origin,
+      tianaToken,
+      async fetch() {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array([0]));
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 200, headers: fixture.headers },
+        );
+      },
+    });
+    await assert.rejects(
+      adapter(`${origin}/v1/query`, { method: "POST" }),
+      fixture.message,
+    );
+    assert.equal(cancelled, true);
+  }
+});
+
+test("invalid configured origins and tokens fail closed", () => {
+  assert.throws(
+    () => createTianaFetch({ origin: "https://127.0.0.1", tianaToken }),
+    /valid v1 Endpoint ID and DNS suffix/,
+  );
+  assert.throws(
+    () => createTianaFetch({ origin: "https://example.com", tianaToken }),
+    /valid v1 Endpoint ID and DNS suffix/,
+  );
+  assert.throws(
+    () =>
+      createTianaFetch({
+        origin:
+          "https://ep-81j5c9m7q2v8x4k6n3r0t1w2yz.db.service.internal.tiana.com",
+        tianaToken,
+      }),
+    /valid v1 Endpoint ID and DNS suffix/,
+  );
+  assert.throws(
+    () => createTianaFetch({ origin: "http://example.com", tianaToken }),
+    /absolute HTTPS origin/,
+  );
+  assert.throws(
+    () => createTianaFetch({ origin, tianaToken: "" }),
+    /Exactly one of tianaToken or auth is required/,
+  );
+  assert.doesNotThrow(() =>
+    createTianaFetch({ origin: origin.toUpperCase(), tianaToken }),
+  );
+});
+
+test("opaque credentials reach the outer request unchanged", async () => {
+  for (const token of ["opaque-credential", `tia_2${"A".repeat(43)}`, "future:credential:any-length"]) {
+    let calls = 0;
+    const adapter = createTianaFetch({
+      origin,
+      tianaToken: token,
+      async fetch(input, init) {
+        calls++;
+        assert.equal(init.headers.get("authorization"), `Bearer ${token}`);
+        const request = decodeRequestFrameBytes(await requestBytes(init));
+        return successResponse(successFrame(request));
+      },
+    });
+    const response = await adapter(`${origin}/v1/query`);
+    assert.equal(response.status, 201);
+    assert.equal(calls, 1);
+  }
+});
+
+test("canonical outer error is returned once and is never retried", async () => {
+  const fixture = await readFile(
+    `${fixtureRoot}fetch/error-unavailable.json`,
+    "utf8",
+  );
+  const body = fixture.endsWith("\n") ? fixture.slice(0, -1) : fixture;
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      return new Response(body, {
+        status: 503,
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/json",
+        },
+      });
+    },
+  });
+  const response = await adapter(`${origin}/v1/query`, { method: "POST" });
+  assert.equal(calls, 1);
+  assert.equal(response.status, 503);
+  assert.equal(response.url, `${origin}/v1/query`);
+  assert.equal(await response.text(), body);
+});
+
+test("quota errors reach applications as one preserved 403 Response", async () => {
+  const error = {
+    error: {
+      code: "QUOTA_EXCEEDED",
+      message: "tenant quota exceeded",
+      reason: "compute",
+      retryable: false,
+      request_not_executed: true,
+    },
+  };
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      return new Response(JSON.stringify(error), {
+        status: 403,
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/json",
+        },
+      });
+    },
+  });
+
+  const response = await adapter(`${origin}/v3/pipeline`, { method: "POST" });
+  assert.equal(calls, 1);
+  assert.equal(response.status, 403);
+  assert.equal(response.url, `${origin}/v3/pipeline`);
+  assert.deepEqual(await response.json(), error);
+});
+
+test("405 outer errors require the exact Allow: POST contract", async () => {
+  const fixture = await readFile(
+    `${fixtureRoot}fetch/error-method-not-allowed.json`,
+    "utf8",
+  );
+  const body = fixture.endsWith("\n") ? fixture.slice(0, -1) : fixture;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      return new Response(body, {
+        status: 405,
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/json",
+        },
+      });
+    },
+  });
+  await assert.rejects(
+    adapter(`${origin}/v1/query`, { method: "POST" }),
+    /Allow: POST/,
+  );
+});
+
+test("post-commit truncated TFS1 errors the Response body without retry", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      calls += 1;
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      const full = successFrame(request);
+      return successResponse(full.subarray(0, full.byteLength - 2));
+    },
+  });
+  const response = await adapter(`${origin}/v1/query`, { method: "POST" });
+  await assert.rejects(response.arrayBuffer(), TianaFetchProtocolError);
+  assert.equal(calls, 1);
+});
+
+test("response request_id mismatch fails before exposing a Response and cancels", async () => {
+  let cancelled = false;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      const frame = successFrame(request, { request_id: "req-mismatch" });
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(frame);
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/vnd.tiana.fetch.v1",
+          },
+        },
+      );
+    },
+  });
+  await assert.rejects(
+    adapter(`${origin}/v1/query`, { method: "POST" }),
+    /request_id does not match/,
+  );
+  assert.equal(cancelled, true);
+});
+
+test("HEAD request returns a bodyless inner Response", async () => {
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.method, "HEAD");
+      assert.equal(request.metadata.body_length, 0);
+      const frame = encodeResponseFrameBytes({
+        metadata_version: 1,
+        request_id: request.metadata.request_id,
+        status: 200,
+        status_text: "OK",
+        headers: [{ name: "content-type", value: "application/json" }],
+        body_length: 0,
+      });
+      return successResponse(frame);
+    },
+  });
+  const response = await adapter(`${origin}/v1/query`, { method: "HEAD" });
+  assert.equal(response.status, 200);
+  assert.equal(response.body, null);
+  assert.equal(await response.text(), "");
+});
+
+test("unknown-length request and response bodies enforce the 16 MiB ceiling", async () => {
+  let requestCalls = 0;
+  const oversizedRequest = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      requestCalls += 1;
+      await requestBytes(init);
+      throw new Error("oversized request unexpectedly reached a response");
+    },
+  });
+  let requestPhase = 0;
+  const requestBody = new ReadableStream({
+    pull(controller) {
+      if (requestPhase === 0) {
+        requestPhase += 1;
+        controller.enqueue(new Uint8Array(maxBodyBytes));
+      } else if (requestPhase === 1) {
+        requestPhase += 1;
+        controller.enqueue(new Uint8Array([1]));
+      } else {
+        controller.close();
+      }
+    },
+  });
+  await assert.rejects(
+    oversizedRequest(`${origin}/v1/query`, {
+      method: "POST",
+      body: requestBody,
+      duplex: "half",
+    }),
+    /exceeds the v1 limit/,
+  );
+  assert.equal(requestCalls, 1);
+
+  let responseCancelled = false;
+  const oversizedResponse = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      const head = encodeResponseFrameBytes({
+        metadata_version: 1,
+        request_id: request.metadata.request_id,
+        status: 200,
+        status_text: "OK",
+        headers: [],
+        body_length: null,
+      });
+      let phase = 0;
+      return new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (phase === 0) {
+              phase += 1;
+              controller.enqueue(head);
+            } else if (phase === 1) {
+              phase += 1;
+              controller.enqueue(new Uint8Array(maxBodyBytes));
+            } else if (phase === 2) {
+              phase += 1;
+              controller.enqueue(new Uint8Array([1]));
+            }
+          },
+          cancel() {
+            responseCancelled = true;
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/vnd.tiana.fetch.v1",
+          },
+        },
+      );
+    },
+  });
+  const response = await oversizedResponse(`${origin}/v1/query`, {
+    method: "POST",
+  });
+  await assert.rejects(response.arrayBuffer(), /exceeds the v1 limit/);
+  assert.equal(responseCancelled, true);
+});
+
+test("cancelling the inner Response body cancels the outer stream", async () => {
+  let cancelled = false;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      const frame = successFrame(request, { body_length: null });
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(frame);
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/vnd.tiana.fetch.v1",
+          },
+        },
+      );
+    },
+  });
+  const response = await adapter(`${origin}/v1/query`, { method: "POST" });
+  await response.body.cancel("caller stopped reading");
+  assert.equal(cancelled, true);
+});
+
+test("cancelling during a pending outer read converges without stream races", async () => {
+  let cancelled = false;
+  let pendingReadStarted;
+  const pendingRead = new Promise((resolve) => {
+    pendingReadStarted = resolve;
+  });
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      const head = encodeResponseFrameBytes({
+        metadata_version: 1,
+        request_id: request.metadata.request_id,
+        status: 200,
+        status_text: "OK",
+        headers: [],
+        body_length: null,
+      });
+      let phase = 0;
+      return new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (phase === 0) {
+              phase += 1;
+              controller.enqueue(head);
+              return;
+            }
+            pendingReadStarted();
+            return new Promise(() => undefined);
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "cache-control": "no-store",
+            "content-type": "application/vnd.tiana.fetch.v1",
+          },
+        },
+      );
+    },
+  });
+  const response = await adapter(`${origin}/v1/query`, { method: "POST" });
+  const reader = response.body.getReader();
+  const reading = reader.read();
+  await pendingRead;
+  await reader.cancel("caller stopped reading");
+  assert.deepEqual(await reading, { value: undefined, done: true });
+  assert.equal(cancelled, true);
+});
+
+test("AbortSignal propagates to the sole outer request", async () => {
+  let calls = 0;
+  let bodyCancelled = false;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    fetch(_input, init) {
+      calls += 1;
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener(
+          "abort",
+          () => reject(init.signal.reason),
+          { once: true },
+        );
+      });
+    },
+  });
+  const controller = new AbortController();
+  const body = new ReadableStream({
+    pull(streamController) {
+      streamController.enqueue(new TextEncoder().encode("pending"));
+    },
+    cancel() {
+      bodyCancelled = true;
+    },
+  });
+  const result = adapter(`${origin}/v1/query`, {
+    method: "POST",
+    body,
+    duplex: "half",
+    signal: controller.signal,
+  });
+  controller.abort(new DOMException("stopped", "AbortError"));
+  await assert.rejects(result, { name: "AbortError" });
+  assert.equal(calls, 1);
+  assert.equal(bodyCancelled, true);
+});
+
+test("a pre-aborted request never reaches the outer transport", async () => {
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      throw new Error("transport must not run");
+    },
+  });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    adapter(`${origin}/v1/query`, {
+      method: "POST",
+      signal: controller.signal,
+    }),
+    { name: "AbortError" },
+  );
+  assert.equal(calls, 0);
+});
+
+test("abort safely interrupts a pending request-body read", async () => {
+  let bodyCancelled = false;
+  let transportStarted;
+  const started = new Promise((resolve) => {
+    transportStarted = resolve;
+  });
+  const body = new ReadableStream({
+    pull() {
+      return new Promise(() => undefined);
+    },
+    cancel() {
+      bodyCancelled = true;
+    },
+  });
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch(_input, init) {
+      transportStarted();
+      await new Response(init.body).arrayBuffer();
+      throw new Error("aborted request body unexpectedly completed");
+    },
+  });
+  const controller = new AbortController();
+  const result = adapter(`${origin}/v1/query`, {
+    method: "POST",
+    body,
+    duplex: "half",
+    signal: controller.signal,
+  });
+  await started;
+  controller.abort(new DOMException("stopped", "AbortError"));
+  await assert.rejects(result, { name: "AbortError" });
+  assert.equal(bodyCancelled, true);
+});
+
+test("tiana-http sends a finite binary frame with protocol metadata and exact UTF-8 length", async () => {
+  const body = JSON.stringify({ sql: "SELECT '你好';" });
+  const adapter = createTianaFetch({
+    origin, tianaToken, protocol: "tiana-http",
+    async fetch(input, init) {
+      assert.equal(input, `${origin}/v1/fetch`);
+      assert.ok(init.body instanceof Uint8Array);
+      assert.equal(init.duplex, undefined);
+      const request = decodeRequestFrameBytes(init.body);
+      assert.equal(request.metadata.protocol, "tiana-http");
+      assert.equal(request.metadata.path_query, "/arbitrary/app/path?x=1");
+      assert.equal(request.metadata.body_length, Buffer.byteLength(body));
+      assert.equal(new TextDecoder().decode(request.body), body);
+      assert.ok(request.metadata.headers.every(h => h.name !== "protocol"));
+      return successResponse(successFrame(request));
+    },
+  });
+  const response = await adapter(`${origin}/arbitrary/app/path?x=1`, {
+    method: "POST", body, headers: { "content-type": "application/json" },
+  });
+  assert.deepEqual(await response.json(), { ok: 1 });
+});
+
+test("tiana-http cancels while reading its body before sending", async () => {
+  const controller = new AbortController();
+  let sent = false;
+  const body = new ReadableStream({
+    pull(stream) {
+      const reason = new Error("cancel preparation");
+      controller.abort(reason);
+      stream.error(reason);
+    },
+  });
+  const adapter = createTianaFetch({ origin, tianaToken, protocol: "tiana-http",
+    fetch() { sent = true; throw new Error("unexpected send"); },
+  });
+  await assert.rejects(adapter(`${origin}/v1/sql`, {
+    method: "POST", body, duplex: "half", signal: controller.signal,
+  }), /cancel preparation/);
+  assert.equal(sent, false);
+});
+
+
+test("buffered native requests preserve configured HTTPS ports and reject other origins", async () => {
+  const endpoint = `${origin}:9443`;
+  let calls = 0;
+  const adapter = createTianaFetch({ origin: endpoint, tianaToken, requestBodyMode: "buffered",
+    async fetch(input, init) {
+      calls++;
+      assert.equal(input, `${endpoint}/v1/fetch`);
+      assert.ok(init.body instanceof Uint8Array);
+      assert.equal(init.duplex, undefined);
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.protocol, undefined);
+      return successResponse(successFrame(request));
+    },
+  });
+  const response = await adapter(`${endpoint}/v2/pipeline`, { method: "POST", body: "{}" });
+  assert.equal(await response.text(), '{"ok":1}');
+  await assert.rejects(adapter(`${origin}/v2/pipeline`), /origin does not match/);
+  assert.equal(calls, 1);
+});
+
+
+test("configured Endpoint suffix and port are used without changing request origin checks", async () => {
+  const localOrigin = "https://ep-01j5c9m7q2v8x4k6n3r0t1w2yz.db.dev.tiana.test:8445";
+  let called = 0;
+  const adapter = createTianaFetch({origin: localOrigin, tianaToken, fetch: async (url) => {
+    called++;
+    assert.equal(url, `${localOrigin}/v1/fetch`);
+    throw new Error("configured transport reached");
+  }});
+  await assert.rejects(adapter(`${localOrigin}/v1/query`), /configured transport reached/);
+  await assert.rejects(adapter(`${origin}/v1/query`), /origin does not match/);
+  assert.equal(called, 1);
+});
+
+test("dynamic provider changes only outer credentials and preserves inner DB auth", async () => {
+  let access = "session-access-first";
+  const seen = [];
+  const adapter = createTianaFetch({
+    origin,
+    auth: { getAccessToken: async () => access },
+    async fetch(_input, init) {
+      seen.push(init.headers.get("authorization"));
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.ok(
+        request.metadata.headers.some(
+          (header) =>
+            header.name === "authorization" &&
+            header.value === "Bearer database-credential",
+        ),
+      );
+      assert.ok(!JSON.stringify(request.metadata).includes(access));
+      return successResponse(successFrame(request));
+    },
+  });
+  await adapter(`${origin}/v1/query`, {
+    headers: { authorization: "Bearer database-credential" },
+  });
+  access = "session-access-second";
+  await adapter(`${origin}/v1/query`, {
+    headers: { authorization: "Bearer database-credential" },
+  });
+  assert.deepEqual(seen, [
+    "Bearer session-access-first",
+    "Bearer session-access-second",
+  ]);
+});
+
+
+test("HTTP data preserves inner encoding and HEAD representation headers", async () => {
+  const compressed = new Uint8Array([0x1f, 0x8b, 8, 0, 11, 22, 33]);
+  for (const method of ["GET", "HEAD"]) {
+    let calls = 0;
+    const adapter = createTianaFetch({ origin, tianaToken, protocol: "tiana-http", async fetch(_url, init) {
+      calls++;
+      const request = decodeRequestFrameBytes(await requestBytes(init));
+      assert.equal(request.metadata.channel, undefined);
+      assert.deepEqual(request.metadata.headers, [{name: "accept-encoding", value: "gzip, identity;q=0.5"}]);
+      const body = method === "HEAD" ? new Uint8Array() : compressed;
+      return successResponse(encodeResponseFrameBytes({metadata_version: 1, request_id: request.metadata.request_id, status: 200, status_text: "OK", headers: [{name: "content-encoding", value: "gzip"}, {name: "content-length", value: String(compressed.length)}], body_length: body.length}, body));
+    }});
+    const response = await adapter(`${origin}/file.txt`, {method, headers: {"accept-encoding": "gzip, identity;q=0.5"}});
+    assert.equal(response.headers.get("content-length"), String(compressed.length));
+    assert.equal(response.headers.get("content-encoding"), "gzip");
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), method === "HEAD" ? new Uint8Array() : compressed);
+    assert.equal(calls, 1);
+  }
+});
+
+test("HTTP control uses tiana-http Fetch without a channel selector", async () => {
+  const adapter=createTianaFetch({origin,tianaToken,protocol:"tiana-http",async fetch(_url,init){
+    const request=decodeRequestFrameBytes(await requestBytes(init));
+    assert.equal(request.metadata.channel,undefined);
+    assert.equal(request.metadata.path_query,"/_tiana/web/current");
+    return successResponse(encodeResponseFrameBytes({metadata_version:1,request_id:request.metadata.request_id,status:200,status_text:"OK",headers:[],body_length:0},new Uint8Array()));
+  }});
+  assert.equal((await adapter(origin+"/_tiana/web/current")).status,200);
+});
+for (const [code, message] of [
+  ["ACTIVATION_RESOURCE_PRESSURE", "activation resource pressure"],
+  ["ACTIVATION_NO_IDLE_POD", "activation has no idle pod"],
+  ["ACTIVATION_CAPACITY_UNAVAILABLE", "activation capacity unavailable"],
+]) {
+  test(`capacity error ${code} retains diagnostics without replay`, async () => {
+    let requests = 0;
+    const error = { code, message, retryable: true, request_not_executed: true };
+    const adapter = createTianaFetch({ origin, tianaToken, async fetch() {
+      requests++;
+      return new Response(JSON.stringify({ error }), { status: 503, headers: {
+        "content-type": "application/json", "cache-control": "no-store",
+      }});
+    }});
+    const response = await adapter(`${origin}/v1/sql`, { method: "POST", body: "write" });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error });
+    assert.ok(diagnosisOf(response).requestId);
+    assert.equal(requests, 1);
+  });
+}
