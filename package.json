@@ -1,12 +1,12 @@
 {
   "name": "@tianacloud/serverless",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0",
   "description": "Tiana Fetch-over-HTTPS transport for serverless and edge JavaScript runtimes",
   "type": "module",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
-    "tag": "next"
+    "tag": "latest"
   },
   "sideEffects": false,
   "license": "Apache-2.0",
