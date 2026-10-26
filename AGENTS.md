@@ -92,8 +92,9 @@ and multipart fields, image failure recovery, and packaged public exports.
 
 `@tianacloud/serverless/codec` exposes the four buffered Fetch v1 frame codecs
 and their metadata/result types through `src/codec-public.ts`. Keep streaming
-helpers internal and preserve existing validation and wire bytes. Consumers and
-conformance tests must use the public subpath rather than internal `dist` paths.
+helpers internal and preserve existing validation and wire bytes. External consumers must use the public subpath rather than internal `dist`
+paths. In-repository protocol tests use local build paths; only consumer type
+fixtures and installed-package tests import the public package entry points.
 Validate package installation, TypeScript consumers and golden protocol fixtures
 when changing this entry point. Shared-codec mocks do not replace real Gateway
 interoperability acceptance.
