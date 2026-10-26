@@ -130,7 +130,8 @@ application callers should continue using `createTianaFetch`.
 
 A mock server using the same codec verifies client integration; it does not
 independently prove Gateway interoperability. The conformance tests also compare
-public codec output with the checked-in golden protocol bytes.
+local codec output with the checked-in golden protocol bytes; the installed-package
+test separately checks the public entry point against golden response bytes.
 
 ## Request diagnostics
 
