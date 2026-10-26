@@ -79,3 +79,45 @@ createTianaFetch({ origin: options.origin, auth });
 createTianaFetch({ origin: options.origin, auth, tianaToken: "static" });
 // @ts-expect-error An adapter must have a credential source.
 createTianaFetch({ origin: options.origin });
+
+// The buffered codec is available through a public package subpath.
+import {
+  decodeRequestFrameBytes,
+  decodeResponseFrameBytes,
+  encodeRequestFrameBytes,
+  encodeResponseFrameBytes,
+  type DecodedRequestFrame,
+  type DecodedResponseFrame,
+  type FetchHeader,
+  type FetchMethod,
+  type FetchRequestMetadata,
+  type FetchResponseMetadata,
+} from "@tianacloud/serverless/codec";
+
+const codecMethod: FetchMethod = "GET";
+const codecHeaders: FetchHeader[] = [];
+const requestMetadata: FetchRequestMetadata = {
+  metadata_version: 1,
+  request_id: "req-codec-example",
+  method: codecMethod,
+  path_query: "/v1/tree",
+  headers: codecHeaders,
+  body_length: 0,
+  protocol: "tiana-http",
+};
+const decodedRequest: DecodedRequestFrame = decodeRequestFrameBytes(
+  encodeRequestFrameBytes(requestMetadata),
+);
+const responseMetadata: FetchResponseMetadata = {
+  metadata_version: 1,
+  request_id: decodedRequest.metadata.request_id,
+  status: 200,
+  status_text: "OK",
+  headers: [],
+  body_length: 0,
+};
+const decodedResponse: DecodedResponseFrame = decodeResponseFrameBytes(
+  encodeResponseFrameBytes(responseMetadata),
+  { requestId: requestMetadata.request_id, method: codecMethod },
+);
+void decodedResponse;

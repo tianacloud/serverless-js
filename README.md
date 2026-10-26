@@ -91,6 +91,47 @@ Each call owns an independent App connection. Send `BEGIN; ...; COMMIT;` in
 one request. Separate calls do not share a connection transaction or TEMP
 state; SQL errors and partial success keep the App's existing semantics.
 
+## Buffered frame codec
+
+Protocol tools and test fixtures can use the public `@tianacloud/serverless/codec`
+entry point instead of importing internal `dist` files:
+
+```ts
+import {
+  decodeRequestFrameBytes,
+  encodeResponseFrameBytes,
+} from "@tianacloud/serverless/codec";
+
+const request = decodeRequestFrameBytes(requestBytes);
+const body = new TextEncoder().encode('{"entries":[]}');
+const responseBytes = encodeResponseFrameBytes({
+  metadata_version: 1,
+  request_id: request.metadata.request_id,
+  status: 200,
+  status_text: "OK",
+  headers: [{ name: "content-type", value: "application/json" }],
+  body_length: body.byteLength,
+}, body);
+```
+
+This entry point exports `encodeRequestFrameBytes`, `decodeRequestFrameBytes`,
+`encodeResponseFrameBytes`, and `decodeResponseFrameBytes`, plus the
+`DecodedRequestFrame`, `DecodedResponseFrame`, `FetchHeader`, `FetchMethod`,
+`FetchRequestMetadata`, and `FetchResponseMetadata` types. The response decoder
+accepts an optional `{ requestId, method }` argument to check response correlation
+and HEAD semantics. Invalid frames throw `TianaFetchProtocolError`, available
+from the main package entry point.
+
+These functions buffer complete Fetch v1 frames and apply the existing metadata
+and body validation. They do not send requests or perform authentication. Keep
+credentials in the outer transport authorization header, outside the frames.
+Streaming helpers and internal `dist/*` paths are not public API. Ordinary
+application callers should continue using `createTianaFetch`.
+
+A mock server using the same codec verifies client integration; it does not
+independently prove Gateway interoperability. The conformance tests also compare
+public codec output with the checked-in golden protocol bytes.
+
 ## Request diagnostics
 
 The adapter generates a request ID before network I/O and sends the same ID

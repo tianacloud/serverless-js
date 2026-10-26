@@ -8,7 +8,7 @@ import {
   decodeResponseFrameBytes,
   encodeRequestFrameBytes,
   encodeResponseFrameBytes,
-} from "../dist/codec.js";
+} from "@tianacloud/serverless/codec";
 import { TianaFetchProtocolError } from "../dist/errors.js";
 import {
   decodeErrorResponse,

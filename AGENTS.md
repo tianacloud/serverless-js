@@ -87,3 +87,13 @@ an OSS form. Clear and dispose old clients on identity changes.
 
 Validate Node and browser transports, concurrent renewal/cancel, upload identity
 and multipart fields, image failure recovery, and packaged public exports.
+
+## Public buffered codec
+
+`@tianacloud/serverless/codec` exposes the four buffered Fetch v1 frame codecs
+and their metadata/result types through `src/codec-public.ts`. Keep streaming
+helpers internal and preserve existing validation and wire bytes. Consumers and
+conformance tests must use the public subpath rather than internal `dist` paths.
+Validate package installation, TypeScript consumers and golden protocol fixtures
+when changing this entry point. Shared-codec mocks do not replace real Gateway
+interoperability acceptance.
