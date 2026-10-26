@@ -98,3 +98,21 @@ fixtures and installed-package tests import the public package entry points.
 Validate package installation, TypeScript consumers and golden protocol fixtures
 when changing this entry point. Shared-codec mocks do not replace real Gateway
 interoperability acceptance.
+
+
+## Unified one-shot location (2026-10-26)
+User approved implementation of SDK-owned device location, platform injection,
+WGS-84 results and a server-fixed WeChat AppID. The user subsequently authorized
+committing this SDK change and pushing it to main. npm release and platform
+deployment remain outside that authorization. Location is frontend-only and additive: no
+Fetch/auth/data-plane contract or persistence changes. Preserve no DOM/network
+side effects on import, 20s default total bound, 10s shared setup, <=32 waiters,
+independent cancellation and cleanup on dispose. No coordinate cache, logging,
+HTTP upload, IP fallback or second authorization channel after refusal. Server
+owns AppID; factory options never accept it. Retain strict result validation and
+fresh SDK state after config failures. Web/CLI generated location code/resources
+must match; preserve their unrelated Bootstrap auth differences. The explicit
+integration generator is not a build/test dependency on any other repository.
+Verify types, actual bundled SDK bridge and browser hardware fixtures, full SDK
+checks, runtime packaging and platform integration. Candidate artifacts require
+immutable release provenance before publication; phone acceptance is separate.

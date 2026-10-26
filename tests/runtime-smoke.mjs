@@ -1,5 +1,6 @@
 import {
   createTianaFetch,
+  createTianaLocation,
   TianaFetchProtocolError,
 } from "@tianacloud/serverless";
 import {
@@ -44,7 +45,10 @@ const adapter = createTianaFetch({
 });
 
 const response = await adapter(`${origin}/v1/query`, { method: "POST" });
-check(response instanceof Response, "adapter did not return a platform Response");
+check(
+  response instanceof Response,
+  "adapter did not return a platform Response",
+);
 check(
   typeof TianaFetchProtocolError === "function",
   "public package export is missing",
@@ -52,4 +56,16 @@ check(
 check(response.status === 200, "inner status mismatch");
 check(response.url === `${origin}/v1/query`, "inner response URL mismatch");
 check((await response.text()) === "edge-ok", "inner body mismatch");
+const location = createTianaLocation();
+try {
+  await location.getCurrentPosition();
+  throw new Error("non-browser location unexpectedly succeeded");
+} catch (error) {
+  check(
+    error.code === "UNSUPPORTED",
+    "non-browser location must be unsupported",
+  );
+} finally {
+  location.dispose();
+}
 console.log("TIANA_SERVERLESS_RUNTIME_SMOKE_PASS");

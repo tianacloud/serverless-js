@@ -385,3 +385,64 @@ already-issued OSS form or immediately release its reservation. A lost complete
 response raises `FILE_COMPLETE_UNCERTAIN` with `uploadId`; query the operation
 before starting another upload. MGR's expiry check settles uploads even if the
 browser closes. Browser `onProgress` uses XHR; Node reports transfer completion.
+
+
+## One-shot device location
+
+Hosted Tiana apps use the platform-injected capability:
+
+```ts
+const position = await window.tiana.location.getCurrentPosition({
+  timeoutMs: 20_000,
+  signal: abortController.signal,
+});
+// latitude, longitude, accuracy (meters), timestamp (Unix milliseconds),
+// coordinateSystem: "WGS-84"
+```
+
+The platform uses `createTianaLocation({signingUrl, sdkUrl, entryUrl})` from this
+package. These are trusted same-origin platform URLs; application code does not
+supply an AppID. The signing service selects its configured WeChat service-account
+identity. The public AppID reaches `wx.config`; secrets, access tokens and tickets
+remain server-side. The original document URL is captured before SPA navigation,
+with only its fragment removed for signing.
+
+Mobile WeChat and mini-program **WebViews** use the pinned official JS-SDK;
+ordinary PC/mobile browsers and desktop WeChat use browser Geolocation. Results
+always use WGS-84. This is a frontend device capability: Node/Bun/Deno imports
+remain safe, but a host without a browser returns `UNSUPPORTED` when called.
+Native mini-program application code is outside this WebView API.
+
+Import/construction performs no location or signing work. Platform Bootstrap can
+embed the standalone generated implementation without an extra module request.
+The official script and signing are lazy. Permission denial does not trigger a
+second provider or an IP-location service. Accuracy is provided by the device;
+WeChat timestamps describe receipt time rather than an exposed sensor sample time.
+The SDK keeps no position cache/history and sends no coordinates in HTTP, URLs,
+Storage or diagnostics. Browser freshness uses maximumAge=0.
+
+Requests have a total 20-second default deadline (integer timeoutMs 1..120000),
+AbortSignal support and a 32-waiter limit per factory. Configuration is shared
+with its own 10-second bound; cancelling one caller does not cancel another.
+Destroy with `dispose()` on page teardown. Late callbacks cannot settle a finished
+call. After failed configuration the official script is reloaded to clear its
+private ready state. The official source is wrapped in a private factory: existing wx/jWeixin globals
+and mini-program navigation remain untouched, including failed loads. Its document
+listeners are removed on failure/disposal. Hosted apps should use this capability
+consistently; coordination of competing business-managed wx.config calls is outside
+the contract.
+
+`TianaLocationError.code` is one of `PERMISSION_DENIED`, `UNAVAILABLE`, `TIMEOUT`,
+`ABORTED`, `UNSUPPORTED`, `CONFIGURATION`, `INVALID_RESULT`, `BUSY`, `DISPOSED`.
+Diagnostics contain fixed stage/field codes, never native error text or values.
+Wechat numeric strings are normalized as strict decimals; empty/null/boolean,
+objects, hex, nonfinite values and invalid ranges remain rejected.
+
+For local integration only, build this checkout, then explicitly run
+`scripts/sync-location-runtime.mjs PATH_TO_WEB_BOOTSTRAP PATH_TO_CLI_BOOTSTRAP`.
+It embeds a generated scoped region and copies standalone location.js/jweixin.js
+with candidate provenance. Ordinary build/test/pack never reads another checkout.
+Platform release requires immutable SDK release provenance; a local candidate is
+not a published SDK or deployed capability. Existing file/auth resources retain
+their independent pinned provenance. Local CLI preview supports browser location;
+WeChat preview without a trusted signing configuration fails `CONFIGURATION`.

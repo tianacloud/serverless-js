@@ -121,3 +121,12 @@ const decodedResponse: DecodedResponseFrame = decodeResponseFrameBytes(
   { requestId: requestMetadata.request_id, method: codecMethod },
 );
 void decodedResponse;
+
+import {createTianaLocation, TianaLocationError, type TianaPosition} from '@tianacloud/serverless';
+const deviceLocation = createTianaLocation({signingUrl:'https://app.example.test/sign',sdkUrl:'https://app.example.test/sdk.js'});
+const devicePosition: Promise<TianaPosition> = deviceLocation.getCurrentPosition({timeoutMs:20000,signal:new AbortController().signal});
+void devicePosition;
+void new TianaLocationError('UNSUPPORTED').code;
+// @ts-expect-error AppID is server-owned, never an application SDK option.
+createTianaLocation({appId:'wx0123456789abcdef'});
+deviceLocation.dispose();

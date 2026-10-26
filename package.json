@@ -35,7 +35,7 @@
     }
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p tsconfig.json",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.json && node scripts/copy-browser-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:types": "pnpm run build && tsc -p tests/types/tsconfig.json",
     "test": "pnpm run test:node",
