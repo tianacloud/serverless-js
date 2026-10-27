@@ -103,8 +103,9 @@ interoperability acceptance.
 ## Unified one-shot location (2026-10-26)
 User approved implementation of SDK-owned device location, platform injection,
 WGS-84 results and a server-fixed WeChat AppID. The user subsequently authorized
-committing this SDK change and pushing it to main. npm release and platform
-deployment remain outside that authorization. Location is frontend-only and additive: no
+committing this SDK change and pushing it to main, then explicitly requested npm
+publication on 2026-10-27. Release 0.2.0 through the existing tagged GitHub Actions
+trusted-publishing workflow; platform deployment is separate. Location is frontend-only and additive: no
 Fetch/auth/data-plane contract or persistence changes. Preserve no DOM/network
 side effects on import, 20s default total bound, 10s shared setup, <=32 waiters,
 independent cancellation and cleanup on dispose. No coordinate cache, logging,
