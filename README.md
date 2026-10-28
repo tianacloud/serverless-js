@@ -446,3 +446,44 @@ Platform release requires immutable SDK release provenance; a local candidate is
 not a published SDK or deployed capability. Existing file/auth resources retain
 their independent pinned provenance. Local CLI preview supports browser location;
 WeChat preview without a trusted signing configuration fails `CONFIGURATION`.
+## Function calls with a browser identity
+
+Hosted applications use the current Site login without configuring a persistent
+Function token:
+
+```js
+const response = await tiana.functions.fetch('fn-orders', '/orders', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: 'hello' }),
+  signal: abortController.signal,
+});
+```
+
+The Web owner must first select the Function in the Web's allowed list. The
+Bootstrap obtains a short-lived credential through its same-origin Site API,
+then calls the granted Gateway origin directly. Site cookies stay on the Site;
+Function requests use the granted token and omit cookies. Function business
+responses retain their HTTP status and body.
+
+The exported `createTianaFunctions({ connection, fetch? })` is the same client
+used by the Bootstrap. `connection(instanceId, { signal })` belongs to the
+embedding application's authenticated context and returns `instance_id`,
+`origin`, `token`, and absolute Unix-second `expires_at`. Console integrations
+can supply their existing same-origin credential issuer. It is not an account
+refresh provider; no long-lived token discovery or persistence is performed.
+
+One client caches grants per Function in memory and shares concurrent grant
+requests. Canceling one caller leaves other waiters running. Grant acquisition
+has a bounded management wait; the caller's AbortSignal controls the business
+request. A 401/403 discards that target's cached grant and returns the response,
+without replaying the business request. Network errors also do not trigger
+replay. Cross-origin target overrides are rejected and HTTP redirects are not
+followed with the credential.
+
+Call `dispose()` when logging out or replacing the user/tenant context, then
+create a new client for the new context. Disposal discards late grants and
+cancels outstanding requests. Hosted Bootstrap also discards grants on page
+exit and on detected Site session loss, and creates a fresh client after a
+persisted-page restoration. These SDK tests and browser fixtures do not replace
+acceptance against a deployed Function platform.

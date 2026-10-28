@@ -130,3 +130,12 @@ void new TianaLocationError('UNSUPPORTED').code;
 // @ts-expect-error AppID is server-owned, never an application SDK option.
 createTianaLocation({appId:'wx0123456789abcdef'});
 deviceLocation.dispose();
+import { createTianaFunctions, type TianaFunctionConnection } from "../../dist/index.js";
+const functionClient = createTianaFunctions({
+  async connection(instanceId, { signal }): Promise<TianaFunctionConnection> {
+    signal.throwIfAborted();
+    return { instance_id: instanceId, origin: "https://fn.example.test", token: "example", expires_at: 2000000000 };
+  },
+});
+void functionClient.fetch("fn-orders", "/orders", { method: "POST", body: "{}" });
+functionClient.dispose();
