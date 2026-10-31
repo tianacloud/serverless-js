@@ -511,3 +511,8 @@ export type {
   TianaFileGrant, TianaFileUpload, TianaFileRequest, TianaFileRequestOptions,
   TianaFilePutOptions,
 } from "./files.js";
+
+export { createTianaLocation, TianaLocationError } from './location.js';
+export type { TianaLocation, TianaLocationOptions, TianaLocationRequestOptions, TianaLocationErrorCode, TianaPosition } from './location.js';
+export { createTianaFunctions } from "./functions.js";
+export type { TianaFunctions, TianaFunctionsOptions, TianaFunctionConnection } from "./functions.js";

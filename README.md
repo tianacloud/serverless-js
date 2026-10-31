@@ -5,7 +5,7 @@ Tiana Fetch-over-HTTPS v1. It converts one standard same-origin `fetch()`
 request into a TFQ1 request to the Tiana Gateway and exposes the TFS1 inner
 response as a standard `Response`.
 
-Install the prerelease with `npm install @tianacloud/serverless@next`. Its historical Fetch v1 compatibility baseline is
+Install the stable release with `npm install @tianacloud/serverless`. Its historical Fetch v1 compatibility baseline is
 Contracts release `v0.17.2-rc.1` at commit
 `d252fd7bf689657e50b6caf36298f8c57860df6b` (annotated tag object
 `fb4fdf07f6e5b86eb00562f07dccf7bd120cd0f2`).
@@ -91,6 +91,48 @@ Each call owns an independent App connection. Send `BEGIN; ...; COMMIT;` in
 one request. Separate calls do not share a connection transaction or TEMP
 state; SQL errors and partial success keep the App's existing semantics.
 
+## Buffered frame codec
+
+Protocol tools and test fixtures can use the public `@tianacloud/serverless/codec`
+entry point instead of importing internal `dist` files:
+
+```ts
+import {
+  decodeRequestFrameBytes,
+  encodeResponseFrameBytes,
+} from "@tianacloud/serverless/codec";
+
+const request = decodeRequestFrameBytes(requestBytes);
+const body = new TextEncoder().encode('{"entries":[]}');
+const responseBytes = encodeResponseFrameBytes({
+  metadata_version: 1,
+  request_id: request.metadata.request_id,
+  status: 200,
+  status_text: "OK",
+  headers: [{ name: "content-type", value: "application/json" }],
+  body_length: body.byteLength,
+}, body);
+```
+
+This entry point exports `encodeRequestFrameBytes`, `decodeRequestFrameBytes`,
+`encodeResponseFrameBytes`, and `decodeResponseFrameBytes`, plus the
+`DecodedRequestFrame`, `DecodedResponseFrame`, `FetchHeader`, `FetchMethod`,
+`FetchRequestMetadata`, and `FetchResponseMetadata` types. The response decoder
+accepts an optional `{ requestId, method }` argument to check response correlation
+and HEAD semantics. Invalid frames throw `TianaFetchProtocolError`, available
+from the main package entry point.
+
+These functions buffer complete Fetch v1 frames and apply the existing metadata
+and body validation. They do not send requests or perform authentication. Keep
+credentials in the outer transport authorization header, outside the frames.
+Streaming helpers and internal `dist/*` paths are not public API. Ordinary
+application callers should continue using `createTianaFetch`.
+
+A mock server using the same codec verifies client integration; it does not
+independently prove Gateway interoperability. The conformance tests also compare
+local codec output with the checked-in golden protocol bytes; the installed-package
+test separately checks the public entry point against golden response bytes.
+
 ## Request diagnostics
 
 The adapter generates a request ID before network I/O and sends the same ID
@@ -136,7 +178,7 @@ Configure npm's trusted publisher once for package `@tianacloud/serverless`,
 repository `tianacloud/serverless-js`, workflow `release.yml`, with direct
 publishing allowed. GitHub-hosted runners use OIDC; publication requires no stored
 npm token or per-release browser verification. npm may require account 2FA when
-initially creating this relationship. Prereleases use the package's `next` tag.
+initially creating this relationship. Stable releases use the package's `latest` tag.
 
 ## Development
 
@@ -343,3 +385,105 @@ already-issued OSS form or immediately release its reservation. A lost complete
 response raises `FILE_COMPLETE_UNCERTAIN` with `uploadId`; query the operation
 before starting another upload. MGR's expiry check settles uploads even if the
 browser closes. Browser `onProgress` uses XHR; Node reports transfer completion.
+
+
+## One-shot device location
+
+Hosted Tiana apps use the platform-injected capability:
+
+```ts
+const position = await window.tiana.location.getCurrentPosition({
+  timeoutMs: 20_000,
+  signal: abortController.signal,
+});
+// latitude, longitude, accuracy (meters), timestamp (Unix milliseconds),
+// coordinateSystem: "WGS-84"
+```
+
+The platform uses `createTianaLocation({signingUrl, sdkUrl, entryUrl})` from this
+package. These are trusted same-origin platform URLs; application code does not
+supply an AppID. The signing service selects its configured WeChat service-account
+identity. The public AppID reaches `wx.config`; secrets, access tokens and tickets
+remain server-side. The original document URL is captured before SPA navigation,
+with only its fragment removed for signing.
+
+Mobile WeChat and mini-program **WebViews** use the pinned official JS-SDK;
+ordinary PC/mobile browsers and desktop WeChat use browser Geolocation. Results
+always use WGS-84. This is a frontend device capability: Node/Bun/Deno imports
+remain safe, but a host without a browser returns `UNSUPPORTED` when called.
+Native mini-program application code is outside this WebView API.
+
+Import/construction performs no location or signing work. Platform Bootstrap can
+embed the standalone generated implementation without an extra module request.
+The official script and signing are lazy. Permission denial does not trigger a
+second provider or an IP-location service. Accuracy is provided by the device;
+WeChat timestamps describe receipt time rather than an exposed sensor sample time.
+The SDK keeps no position cache/history and sends no coordinates in HTTP, URLs,
+Storage or diagnostics. Browser freshness uses maximumAge=0.
+
+Requests have a total 20-second default deadline (integer timeoutMs 1..120000),
+AbortSignal support and a 32-waiter limit per factory. Configuration is shared
+with its own 10-second bound; cancelling one caller does not cancel another.
+Destroy with `dispose()` on page teardown. Late callbacks cannot settle a finished
+call. After failed configuration the official script is reloaded to clear its
+private ready state. The official source is wrapped in a private factory: existing wx/jWeixin globals
+and mini-program navigation remain untouched, including failed loads. Its document
+listeners are removed on failure/disposal. Hosted apps should use this capability
+consistently; coordination of competing business-managed wx.config calls is outside
+the contract.
+
+`TianaLocationError.code` is one of `PERMISSION_DENIED`, `UNAVAILABLE`, `TIMEOUT`,
+`ABORTED`, `UNSUPPORTED`, `CONFIGURATION`, `INVALID_RESULT`, `BUSY`, `DISPOSED`.
+Diagnostics contain fixed stage/field codes, never native error text or values.
+Wechat numeric strings are normalized as strict decimals; empty/null/boolean,
+objects, hex, nonfinite values and invalid ranges remain rejected.
+
+For local integration only, build this checkout, then explicitly run
+`scripts/sync-location-runtime.mjs PATH_TO_WEB_BOOTSTRAP PATH_TO_CLI_BOOTSTRAP`.
+It embeds a generated scoped region and copies standalone location.js/jweixin.js
+with candidate provenance. Ordinary build/test/pack never reads another checkout.
+Platform release requires immutable SDK release provenance; a local candidate is
+not a published SDK or deployed capability. Existing file/auth resources retain
+their independent pinned provenance. Local CLI preview supports browser location;
+WeChat preview without a trusted signing configuration fails `CONFIGURATION`.
+## Function calls with a browser identity
+
+Hosted applications use the current Site login without configuring a persistent
+Function token:
+
+```js
+const response = await tiana.functions.fetch('fn-orders', '/orders', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: 'hello' }),
+  signal: abortController.signal,
+});
+```
+
+The Web owner must first select the Function in the Web's allowed list. The
+Bootstrap obtains a short-lived credential through its same-origin Site API,
+then calls the granted Gateway origin directly. Site cookies stay on the Site;
+Function requests use the granted token and omit cookies. Function business
+responses retain their HTTP status and body.
+
+The exported `createTianaFunctions({ connection, fetch? })` is the same client
+used by the Bootstrap. `connection(instanceId, { signal })` belongs to the
+embedding application's authenticated context and returns `instance_id`,
+`origin`, `token`, and absolute Unix-second `expires_at`. Console integrations
+can supply their existing same-origin credential issuer. It is not an account
+refresh provider; no long-lived token discovery or persistence is performed.
+
+One client caches grants per Function in memory and shares concurrent grant
+requests. Canceling one caller leaves other waiters running. Grant acquisition
+has a bounded management wait; the caller's AbortSignal controls the business
+request. A 401/403 discards that target's cached grant and returns the response,
+without replaying the business request. Network errors also do not trigger
+replay. Cross-origin target overrides are rejected and HTTP redirects are not
+followed with the credential.
+
+Call `dispose()` when logging out or replacing the user/tenant context, then
+create a new client for the new context. Disposal discards late grants and
+cancels outstanding requests. Hosted Bootstrap also discards grants on page
+exit and on detected Site session loss, and creates a fresh client after a
+persisted-page restoration. These SDK tests and browser fixtures do not replace
+acceptance against a deployed Function platform.

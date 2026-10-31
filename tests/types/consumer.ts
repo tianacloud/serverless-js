@@ -79,3 +79,63 @@ createTianaFetch({ origin: options.origin, auth });
 createTianaFetch({ origin: options.origin, auth, tianaToken: "static" });
 // @ts-expect-error An adapter must have a credential source.
 createTianaFetch({ origin: options.origin });
+
+// The buffered codec is available through a public package subpath.
+import {
+  decodeRequestFrameBytes,
+  decodeResponseFrameBytes,
+  encodeRequestFrameBytes,
+  encodeResponseFrameBytes,
+  type DecodedRequestFrame,
+  type DecodedResponseFrame,
+  type FetchHeader,
+  type FetchMethod,
+  type FetchRequestMetadata,
+  type FetchResponseMetadata,
+} from "@tianacloud/serverless/codec";
+
+const codecMethod: FetchMethod = "GET";
+const codecHeaders: FetchHeader[] = [];
+const requestMetadata: FetchRequestMetadata = {
+  metadata_version: 1,
+  request_id: "req-codec-example",
+  method: codecMethod,
+  path_query: "/v1/tree",
+  headers: codecHeaders,
+  body_length: 0,
+  protocol: "tiana-http",
+};
+const decodedRequest: DecodedRequestFrame = decodeRequestFrameBytes(
+  encodeRequestFrameBytes(requestMetadata),
+);
+const responseMetadata: FetchResponseMetadata = {
+  metadata_version: 1,
+  request_id: decodedRequest.metadata.request_id,
+  status: 200,
+  status_text: "OK",
+  headers: [],
+  body_length: 0,
+};
+const decodedResponse: DecodedResponseFrame = decodeResponseFrameBytes(
+  encodeResponseFrameBytes(responseMetadata),
+  { requestId: requestMetadata.request_id, method: codecMethod },
+);
+void decodedResponse;
+
+import {createTianaLocation, TianaLocationError, type TianaPosition} from '@tianacloud/serverless';
+const deviceLocation = createTianaLocation({signingUrl:'https://app.example.test/sign',sdkUrl:'https://app.example.test/sdk.js'});
+const devicePosition: Promise<TianaPosition> = deviceLocation.getCurrentPosition({timeoutMs:20000,signal:new AbortController().signal});
+void devicePosition;
+void new TianaLocationError('UNSUPPORTED').code;
+// @ts-expect-error AppID is server-owned, never an application SDK option.
+createTianaLocation({appId:'wx0123456789abcdef'});
+deviceLocation.dispose();
+import { createTianaFunctions, type TianaFunctionConnection } from "../../dist/index.js";
+const functionClient = createTianaFunctions({
+  async connection(instanceId, { signal }): Promise<TianaFunctionConnection> {
+    signal.throwIfAborted();
+    return { instance_id: instanceId, origin: "https://fn.example.test", token: "example", expires_at: 2000000000 };
+  },
+});
+void functionClient.fetch("fn-orders", "/orders", { method: "POST", body: "{}" });
+functionClient.dispose();

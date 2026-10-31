@@ -1,12 +1,12 @@
 {
   "name": "@tianacloud/serverless",
-  "version": "0.1.0-beta.4",
+  "version": "0.2.0",
   "description": "Tiana Fetch-over-HTTPS transport for serverless and edge JavaScript runtimes",
   "type": "module",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
-    "tag": "next"
+    "tag": "latest"
   },
   "sideEffects": false,
   "license": "Apache-2.0",
@@ -27,10 +27,15 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./codec": {
+      "types": "./dist/codec-public.d.ts",
+      "import": "./dist/codec-public.js",
+      "default": "./dist/codec-public.js"
     }
   },
   "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p tsconfig.json",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.json && node scripts/copy-browser-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:types": "pnpm run build && tsc -p tests/types/tsconfig.json",
     "test": "pnpm run test:node",

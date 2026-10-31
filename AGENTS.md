@@ -87,3 +87,33 @@ an OSS form. Clear and dispose old clients on identity changes.
 
 Validate Node and browser transports, concurrent renewal/cancel, upload identity
 and multipart fields, image failure recovery, and packaged public exports.
+
+## Public buffered codec
+
+`@tianacloud/serverless/codec` exposes the four buffered Fetch v1 frame codecs
+and their metadata/result types through `src/codec-public.ts`. Keep streaming
+helpers internal and preserve existing validation and wire bytes. External consumers must use the public subpath rather than internal `dist`
+paths. In-repository protocol tests use local build paths; only consumer type
+fixtures and installed-package tests import the public package entry points.
+Validate package installation, TypeScript consumers and golden protocol fixtures
+when changing this entry point. Shared-codec mocks do not replace real Gateway
+interoperability acceptance.
+
+
+## Unified one-shot location (2026-10-26)
+User approved implementation of SDK-owned device location, platform injection,
+WGS-84 results and a server-fixed WeChat AppID. The user subsequently authorized
+committing this SDK change and pushing it to main, then explicitly requested npm
+publication on 2026-10-27. Release 0.2.0 through the existing tagged GitHub Actions
+trusted-publishing workflow; platform deployment is separate. Location is frontend-only and additive: no
+Fetch/auth/data-plane contract or persistence changes. Preserve no DOM/network
+side effects on import, 20s default total bound, 10s shared setup, <=32 waiters,
+independent cancellation and cleanup on dispose. No coordinate cache, logging,
+HTTP upload, IP fallback or second authorization channel after refusal. Server
+owns AppID; factory options never accept it. Retain strict result validation and
+fresh SDK state after config failures. Web/CLI generated location code/resources
+must match; preserve their unrelated Bootstrap auth differences. The explicit
+integration generator is not a build/test dependency on any other repository.
+Verify types, actual bundled SDK bridge and browser hardware fixtures, full SDK
+checks, runtime packaging and platform integration. Candidate artifacts require
+immutable release provenance before publication; phone acceptance is separate.

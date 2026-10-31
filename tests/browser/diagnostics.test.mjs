@@ -9,9 +9,9 @@ import { after, before, test } from "node:test";
 import { chromium } from "@playwright/test";
 import { decodeRequestFrameBytes, encodeResponseFrameBytes } from "../../dist/codec.js";
 
-const host = "ep-01j5c9m7q2v8x4k6n3r0t1w2yz.db.service.internal.tiana.com";
-const rejectedHost = "ep-01j5c9m7q2v8x4k6n3r0t1w2yx.db.service.internal.tiana.com";
-const missingHost = "ep-01j5c9m7q2v8x4k6n3r0t1w2yw.db.service.internal.tiana.com";
+const host = "ep-01j5c9m7q2v8x4k6n3r0t1w2yz.gateway.localhost";
+const rejectedHost = "ep-01j5c9m7q2v8x4k6n3r0t1w2yx.gateway.localhost";
+const missingHost = "ep-01j5c9m7q2v8x4k6n3r0t1w2yw.gateway.localhost";
 const token = `tia_0${"A".repeat(42)}A`;
 const requests = new Map();
 let root, server, browser, page, origin;
