@@ -487,3 +487,18 @@ cancels outstanding requests. Hosted Bootstrap also discards grants on page
 exit and on detected Site session loss, and creates a fresh client after a
 persisted-page restoration. These SDK tests and browser fixtures do not replace
 acceptance against a deployed Function platform.
+
+### Vault
+
+`createTianaVault({instanceId, origin, fetch})` uses an authorized `tiana-http`
+transport and exposes `Get`, `Set`, `Remove`, and `List`. Values are UTF-8 strings,
+including empty strings. Version metadata is a decimal string; Set retains the
+version for unchanged values and increments it for changed values. Only the
+current value is stored. List returns key/version metadata and a cursor.
+
+Pass `await createVaultSigner(passphrase)` to Get. The displayed Base64 safety
+passphrase becomes a non-exportable Web Crypto key, and each Get is signed for
+its instance, key and current Unix second. The App accepts a 15-second absolute
+clock difference. Acquire the transport credential before Get; expired signatures
+and uncertain mutations are not retried. The caller owns signer/credential
+lifetime and must discard them when its account context ends.
