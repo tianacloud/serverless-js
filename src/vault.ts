@@ -9,9 +9,9 @@ export type VaultSigner = (instanceId: string, key: string, timestamp: number) =
 /** The key is non-exportable and lives only as long as the caller retains this signer. */
 export async function createVaultSigner(passphrase: string): Promise<VaultSigner> {
   let bytes: Uint8Array<ArrayBuffer>;
-  try { bytes = Uint8Array.from(atob(passphrase), c => c.charCodeAt(0)); }
+  try { bytes = Uint8Array.from(atob(passphrase.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)); }
   catch { throw new Error("Invalid Vault passphrase"); }
-  if (bytes.byteLength !== 32) { bytes.fill(0); throw new Error("Invalid Vault passphrase"); }
+  if (bytes.byteLength !== 16) { bytes.fill(0); throw new Error("Invalid Vault passphrase"); }
   let cryptoKey: CryptoKey;
   try { cryptoKey = await crypto.subtle.importKey("raw", bytes, {name: "HMAC", hash: "SHA-256"}, false, ["sign"]); }
   finally { bytes.fill(0); }
