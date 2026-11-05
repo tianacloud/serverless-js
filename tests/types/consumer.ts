@@ -139,3 +139,8 @@ const functionClient = createTianaFunctions({
 });
 void functionClient.fetch("fn-orders", "/orders", { method: "POST", body: "{}" });
 functionClient.dispose();
+
+import type { TianaFunctionWebSocketOptions } from '../../dist/index.js';
+const socketOptions: TianaFunctionWebSocketOptions = { protocols: ['chat'], signal: new AbortController().signal };
+const functionSocket: Promise<WebSocket> = functionClient.websocket('fn-example', '/chat', socketOptions);
+void functionSocket;

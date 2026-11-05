@@ -466,6 +466,29 @@ then calls the granted Gateway origin directly. Site cookies stay on the Site;
 Function requests use the granted token and omit cookies. Function business
 responses retain their HTTP status and body.
 
+Use `websocket(instanceId, path, { protocols?, signal? })` for a native
+WebSocket, returned after its opening handshake:
+
+```js
+const socket = await tiana.functions.websocket('fn-orders', '/events?topic=orders', {
+  protocols: ['orders'],
+  signal: abortController.signal,
+});
+socket.addEventListener('message', event => console.log(event.data));
+socket.send('subscribe');
+// Close the native socket when finished.
+socket.close();
+```
+
+The SDK converts the granted HTTPS origin to WSS and supplies its short-lived
+credential as `access_token`, preserving the business path and query. Protocols
+go directly to the native WebSocket constructor. The signal cancels credential
+waiting and the handshake; after open, use `socket.close()` or client `dispose()`.
+Disposal closes all owned connecting and open sockets. Failed handshakes keep
+unexpired grants cached for the next explicit call. There is no reconnect,
+message queue, or automatic business retry. Avoid logging the socket URL, which
+contains its credential.
+
 The exported `createTianaFunctions({ connection, fetch? })` is the same client
 used by the Bootstrap. `connection(instanceId, { signal })` belongs to the
 embedding application's authenticated context and returns `instance_id`,
