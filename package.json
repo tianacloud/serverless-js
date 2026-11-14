@@ -32,6 +32,11 @@
       "types": "./dist/codec-public.d.ts",
       "import": "./dist/codec-public.js",
       "default": "./dist/codec-public.js"
+    },
+    "./oauth-node": {
+      "types": "./dist/oauth-node.d.ts",
+      "import": "./dist/oauth-node.js",
+      "default": "./dist/oauth-node.js"
     }
   },
   "scripts": {
@@ -48,6 +53,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@types/node": "^22.20.5",
     "typescript": "7.0.2"
   }
 }

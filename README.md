@@ -525,3 +525,51 @@ its instance, key and current Unix second. The App accepts a 15-second absolute
 clock difference. Acquire the transport credential before Get; expired signatures
 and uncertain mutations are not retried. The caller owns signer/credential
 lifetime and must discard them when its account context ends.
+
+
+## Customer websites with a backend
+
+`createTianaClient` manages instances from the browser. Supply `managementOrigin`
+and your own `getCredential` function; the SDK does not assume a customer HTTP
+endpoint or cookie format. Return `{accessToken, expiresAt, sessionId}` with an
+absolute millisecond expiry, or `null` when disconnected. Throw on backend failure.
+
+```js
+import {createTianaClient, createTianaFetch} from '@tianacloud/serverless';
+const tiana = createTianaClient({
+  managementOrigin: 'https://console.example',
+  async getCredential() {
+    const response = await fetch('/tiana/token', {method:'POST', credentials:'same-origin'});
+    if (!response.ok) throw new Error('Customer session unavailable');
+    const current = await response.json();
+    return current.connected ? {
+      accessToken: current.session.access_token,
+      expiresAt: current.session.expires_at,
+      sessionId: current.session.session_id,
+    } : null;
+  },
+});
+const {data: instances} = await tiana.instances.list();
+const connection = await tiana.connections.get({instanceId: instances.items[0].id});
+const dataFetch = createTianaFetch({origin:connection.origin, auth:connection.auth, requestBodyMode:'buffered'});
+```
+
+Management methods return `{data, response}` so callers can read ETag and operation
+receipts. `instances.update(id, etag, changes)` uses the observed revision.
+`instances.create/delete`, enablement, branch changes and operation queries retain
+the Tiana API request semantics. An accepted operation still needs its receipt checked.
+
+The client shares concurrent credential requests. On `401/AUTHENTICATION_REQUIRED`,
+it retries a management request once only when the replacement AT differs and
+`sessionId` is unchanged. It preserves the body, revision and request ID. Network
+failures and data requests are not replayed. `connections.get` shares and caches
+30-minute OAuth data credentials and renews on use with 30 seconds remaining.
+`clearSession()` discards credentials and permanently invalidates old connections
+and pending results; obtain a new connection after reconnecting. A changed endpoint
+or origin during renewal raises `CONNECTION_CHANGED` before sending data.
+
+The Node-only `@tianacloud/serverless/oauth-node` entry exports
+`createAuthorizationURL`, `exchangeCode`, `refreshSession`, `revokeSession`, and
+`OAuthError`. It implements S256 and the client-secret digest authentication;
+the customer backend owns its cookie, login attempts and stored token snapshots.
+See the complete [four-route backend and browser example](examples/customer-backend/README.md).

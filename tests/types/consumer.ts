@@ -144,3 +144,17 @@ import type { TianaFunctionWebSocketOptions } from '../../dist/index.js';
 const socketOptions: TianaFunctionWebSocketOptions = { protocols: ['chat'], signal: new AbortController().signal };
 const functionSocket: Promise<WebSocket> = functionClient.websocket('fn-example', '/chat', socketOptions);
 void functionSocket;
+
+import {createTianaClient, type TianaCredential} from '@tianacloud/serverless';
+import {createAuthorizationURL, exchangeCode, refreshSession, revokeSession, type OAuthConfig, type TokenSnapshot} from '@tianacloud/serverless/oauth-node';
+const customerCredential: TianaCredential = {accessToken:'access',expiresAt:Date.now()+600000,sessionId:'session'};
+const management = createTianaClient({managementOrigin:'https://console.test',getCredential:async()=>customerCredential});
+void management.instances.list({page:1,pageSize:20});
+void management.instances.create({engine:'sqlite',display_name:'Database'});
+void management.instances.update('instance','revision',{display_name:'Renamed'});
+void management.connections.get({instanceId:'instance'},{requestId:'request'}).then(connection=>createTianaFetch({origin:connection.origin,auth:connection.auth}));
+const oauthConfig: OAuthConfig = {managementOrigin:'https://console.test',clientId:'client',clientSecret:'secret',redirectUri:'https://customer.test/callback'};
+const authorization = createAuthorizationURL(oauthConfig);
+const snapshot: Promise<TokenSnapshot> = exchangeCode(oauthConfig,{code:'code',codeVerifier:authorization.codeVerifier});
+void snapshot.then(value=>refreshSession(oauthConfig,value.refreshToken));
+void snapshot.then(value=>revokeSession(oauthConfig,value.refreshToken));

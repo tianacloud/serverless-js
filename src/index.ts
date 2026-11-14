@@ -519,3 +519,7 @@ export type { TianaFunctions, TianaFunctionsOptions, TianaFunctionConnection, Ti
 
 export { createTianaVault, createVaultSigner, VaultError } from "./vault.js";
 export type { TianaVault, VaultSigner, VaultEntry, VaultSecret, VaultSetResult, VaultPage } from "./vault.js";
+
+export { createTianaClient, TianaManagementError, TianaConnectionError } from './management.js';
+export type { TianaClient, TianaClientOptions, TianaCredential, ManagementOptions, ManagementResult, InstanceQuery, BranchQuery, ConnectionTarget, TianaConnection } from './management.js';
+export type * from './management-types.js';
