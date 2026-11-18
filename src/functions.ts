@@ -1,4 +1,4 @@
-import { waitFor } from "./auth.js";
+import { anySignal, waitFor } from "./auth.js";
 
 export interface TianaFunctionConnection {
   readonly instance_id: string;
@@ -66,7 +66,7 @@ export function createTianaFunctions(options: TianaFunctionsOptions): TianaFunct
     let current = pending.get(instanceId);
     if (!current) {
       // The existing browser management wait is bounded independently of callers.
-      const signal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]);
+      const signal = anySignal([lifetime.signal, AbortSignal.timeout(15000)]);
       current = Promise.resolve().then(async () => {
         signal.throwIfAborted();
         const value = validate(instanceId, await waitFor(options.connection(instanceId, { signal }), signal));
@@ -83,7 +83,7 @@ export function createTianaFunctions(options: TianaFunctionsOptions): TianaFunct
     async fetch(instanceId: string, path: string, init: RequestInit = {}): Promise<Response> {
       active();
       const signal = init.signal
-        ? AbortSignal.any([lifetime.signal, init.signal]) : lifetime.signal;
+        ? anySignal([lifetime.signal, init.signal]) : lifetime.signal;
       signal.throwIfAborted();
       const credential = await waitFor(connection(instanceId), signal);
       signal.throwIfAborted();
@@ -108,7 +108,7 @@ export function createTianaFunctions(options: TianaFunctionsOptions): TianaFunct
     async websocket(instanceId: string, path: string, options: TianaFunctionWebSocketOptions = {}): Promise<WebSocket> {
       active();
       const signal = options.signal
-        ? AbortSignal.any([lifetime.signal, options.signal]) : lifetime.signal;
+        ? anySignal([lifetime.signal, options.signal]) : lifetime.signal;
       signal.throwIfAborted();
       const credential = await waitFor(connection(instanceId), signal);
       signal.throwIfAborted();

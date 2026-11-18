@@ -1,4 +1,4 @@
-import { waitFor, type TianaAuthProvider } from "./auth.js";
+import { anySignal, waitFor, type TianaAuthProvider } from "./auth.js";
 
 export interface TianaFile {
   readonly path: string;
@@ -124,7 +124,7 @@ export function createTianaFiles(options: TianaFilesOptions): TianaFiles {
   let installedCookie: TianaFileGrant | undefined;
   let installing: Promise<TianaFileGrant> | undefined;
   let generation = 0;
-  const signalFor = (signal?: AbortSignal) => signal ? AbortSignal.any([lifetime.signal, signal]) : lifetime.signal;
+  const signalFor = (signal?: AbortSignal) => signal ? anySignal([lifetime.signal, signal]) : lifetime.signal;
 
   async function api<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
     const scopedSignal = signalFor(signal);
@@ -143,7 +143,7 @@ export function createTianaFiles(options: TianaFilesOptions): TianaFiles {
     if (!force && cached && cached.expires_at * 1000 > Date.now() + 30_000) return Promise.resolve(cached);
     const started = generation;
     installing = (async () => {
-      const timeout = AbortSignal.any([lifetime.signal, AbortSignal.timeout(30_000)]);
+      const timeout = anySignal([lifetime.signal, AbortSignal.timeout(30_000)]);
       const next = await api<TianaFileGrant>("/read-grant", "POST", { ...(options.origin ? { origin: options.origin } : {}) }, timeout);
       if (browser) {
         const response = await fetchImpl(next.session_url, { method: "POST", headers: { authorization: `Bearer ${next.token}` }, credentials: "include", redirect: "error", cache: "no-store", signal: timeout });

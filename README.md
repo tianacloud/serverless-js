@@ -319,6 +319,10 @@ authorization results.
 
 ## Files
 
+The file and Function clients support iOS 16 / Safari 16 cancellation APIs,
+including browsers without `AbortSignal.any`. Cancellation reasons, timeouts,
+shared credential waits and response-body cancellation retain their semantics.
+
 `createTianaFiles` provides tenant-scoped `list`, `metadata`, `get`, `getUrl`,
 `put` and `delete`. File storage shares the tenant's existing storage quota.
 Directories are ordinary relative path prefixes. An existing filename requires

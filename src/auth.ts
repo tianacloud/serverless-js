@@ -126,6 +126,48 @@ function abortReason(signal: AbortSignal): unknown {
     signal.reason ?? new DOMException("The operation was aborted", "AbortError")
   );
 }
+
+type AbortLink = { source: AbortSignal; listener: () => void };
+const combinedControllers = new WeakMap<AbortSignal, AbortController>();
+function removeAbortLinks(links: AbortLink[]): void {
+  for (const { source, listener } of links) source.removeEventListener("abort", listener);
+}
+const combinedCleanup = new FinalizationRegistry(removeAbortLinks);
+
+function forwardAbort(output: WeakRef<AbortSignal>, source: AbortSignal): () => void {
+  return () => {
+    const signal = output.deref();
+    if (signal) combinedControllers.get(signal)?.abort(source.reason);
+  };
+}
+
+/** Safari 16 supports abort reasons and timeouts, but not AbortSignal.any. */
+export function anySignal(signals: AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+  const controller = new AbortController();
+  const output = controller.signal;
+  for (const source of signals) {
+    if (source.aborted) {
+      controller.abort(source.reason);
+      return output;
+    }
+  }
+  // A returned Response can retain this signal after fetch resolves. Weak links
+  // preserve body cancellation without retaining completed requests until logout.
+  combinedControllers.set(output, controller);
+  const reference = new WeakRef(output);
+  const links = Array.from(new Set(signals), source => ({
+    source, listener: forwardAbort(reference, source),
+  }));
+  for (const { source, listener } of links) source.addEventListener("abort", listener, { once: true });
+  output.addEventListener("abort", () => {
+    removeAbortLinks(links);
+    combinedCleanup.unregister(output);
+    combinedControllers.delete(output);
+  }, { once: true });
+  combinedCleanup.register(output, links, output);
+  return output;
+}
 /** Cancelling a waiter never cancels a shared refresh or credential save. */
 export function waitFor<T>(
   promise: Promise<T>,
