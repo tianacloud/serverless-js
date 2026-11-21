@@ -52,6 +52,7 @@ export interface FetchResponseMetadata {
 }
 
 const ERROR_DEFINITIONS = {
+  INSTANCE_DISABLED: { status: 412, message: "instance is disabled", retryable: false, retryAfter: "forbidden" },
   ACTIVATION_RESOURCE_PRESSURE: { status: 503, message: "activation resource pressure", retryable: true, retryAfter: "optional" },
   ACTIVATION_NO_IDLE_POD: { status: 503, message: "activation has no idle pod", retryable: true, retryAfter: "optional" },
   ACTIVATION_CAPACITY_UNAVAILABLE: { status: 503, message: "activation capacity unavailable", retryable: true, retryAfter: "optional" },

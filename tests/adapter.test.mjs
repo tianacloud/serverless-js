@@ -603,6 +603,38 @@ test("quota errors reach applications as one preserved 403 Response", async () =
   assert.deepEqual(await response.json(), error);
 });
 
+test("disabled instance reaches applications as one non-retryable 412 Response", async () => {
+  const error = {
+    error: {
+      code: "INSTANCE_DISABLED",
+      message: "instance is disabled",
+      retryable: false,
+      request_not_executed: true,
+    },
+  };
+  let calls = 0;
+  const adapter = createTianaFetch({
+    origin,
+    tianaToken,
+    async fetch() {
+      calls += 1;
+      return new Response(JSON.stringify(error), {
+        status: 412,
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/json",
+        },
+      });
+    },
+  });
+
+  const response = await adapter(`${origin}/v3/pipeline`, { method: "POST" });
+  assert.equal(calls, 1);
+  assert.equal(response.status, 412);
+  assert.equal(response.url, `${origin}/v3/pipeline`);
+  assert.deepEqual(await response.json(), error);
+});
+
 test("405 outer errors require the exact Allow: POST contract", async () => {
   const fixture = await readFile(
     `${fixtureRoot}fetch/error-method-not-allowed.json`,

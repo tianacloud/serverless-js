@@ -577,3 +577,10 @@ The Node-only `@tianacloud/serverless/oauth-node` entry exports
 `OAuthError`. It implements S256 and the client-secret digest authentication;
 the customer backend owns its cookie, login attempts and stored token snapshots.
 See the complete [four-route backend and browser example](examples/customer-backend/README.md).
+
+### Disabled instances
+
+An outer `412 / INSTANCE_DISABLED` is returned as a normal error `Response` by
+`createTianaFetch`, with `retryable: false` and `request_not_executed: true` in the
+JSON error. Enable the instance before sending another request. The adapter does
+not replay the operation.
